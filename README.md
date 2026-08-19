@@ -1,4 +1,4 @@
-# ⚡ FlashEDA
+# ⚡ Flash-EDA Package
 
 Constant-time Exploratory Data Analysis — one line, fixed time, any dataset size.
 
