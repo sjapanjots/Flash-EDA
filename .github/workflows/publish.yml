@@ -1,0 +1,41 @@
+name: Publish to PyPI
+
+# Runs when a GitHub Release is published (e.g. tag v0.3.0).
+# Uses PyPI trusted publishing: no API token is stored in the repo.
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check the tag matches the package version
+        run: |
+          VERSION=$(python setup.py --version)
+          [ "v$VERSION" = "${{ github.event.release.tag_name }}" ] || {
+            echo "Tag ${{ github.event.release.tag_name }} != setup.py version $VERSION"; exit 1; }
+      - run: pip install build twine
+      - run: python -m build
+      - run: twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

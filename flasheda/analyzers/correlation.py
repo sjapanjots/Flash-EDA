@@ -10,6 +10,8 @@ Flags strongly correlated pairs (potential redundant features).
 Always operates on the fixed sample — constant time.
 """
 
+from __future__ import annotations
+
 import pandas as pd
 import numpy as np
 from typing import Dict, Any, List, Tuple
