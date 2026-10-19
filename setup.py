@@ -18,8 +18,13 @@ setup(
         "rich>=12.0.0",
         "jinja2>=3.0.0",
         "matplotlib>=3.4.0",
-        "fpdf2>=2.7.0",            
+        "fpdf2>=2.7.0",
     ],
+    extras_require={
+        "fast": ["duckdb>=0.10", "polars>=0.20", "pyarrow>=12"],
+        "spark": ["pyspark>=3.4"],
+        "dev": ["pytest>=7", "duckdb>=0.10", "polars>=0.20", "pyarrow>=12"],
+    },
     classifiers=[
         "Programming Language :: Python :: 3",
         "Topic :: Scientific/Engineering :: Information Analysis",
