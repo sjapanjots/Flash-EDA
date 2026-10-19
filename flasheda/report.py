@@ -2,7 +2,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+
+import pandas as pd
 
 @dataclass
 class EDAReport:
@@ -15,6 +17,9 @@ class EDAReport:
     elapsed_seconds: float
     original_shape: tuple
     warnings: list[str] = field(default_factory=list)
+    source: Optional[str] = None
+    recommended_engine: str = "pandas"
+    sample: Optional[pd.DataFrame] = field(default=None, repr=False, compare=False)
 
     # ──────────────────────────────────────────────────────────────────────
     # Console
@@ -266,6 +271,47 @@ class EDAReport:
         return p
 
     # ──────────────────────────────────────────────────────────────────────
+    # Code generation
+    # ──────────────────────────────────────────────────────────────────────
+
+    def plan(self, **options):
+        """Engine-neutral cleaning plan built from this report's findings."""
+        from .codegen import plan_from_report
+        return plan_from_report(self, **options)
+
+    def codegen(
+        self,
+        engine: Optional[str] = None,
+        *,
+        output: str = "cleaned.parquet",
+        validate: bool = True,
+        **plan_options,
+    ):
+        """
+        Generate a cleaning script for the full dataset.
+
+        engine        : "pandas" | "polars" | "duckdb" | "pyspark"
+                        (default: the engine recommended for this dataset size)
+        validate      : run the generated code on the sample and raise if it
+                        doesn't match the reference result
+        plan_options  : passed to the planner, e.g. clip_outliers=False
+        """
+        from .codegen import generate
+
+        code = generate(
+            self.plan(**plan_options),
+            engine or self.recommended_engine,
+            source=self.source,
+            output=output,
+            sample=self.sample,
+        )
+        if validate and self.sample is not None:
+            result = code.validate()
+            if not result.ok:
+                raise RuntimeError(f"Generated code failed validation: {result}")
+        return code
+
+    # ──────────────────────────────────────────────────────────────────────
     # Serialisation
     # ──────────────────────────────────────────────────────────────────────
 
@@ -280,6 +326,8 @@ class EDAReport:
             "elapsed_seconds":  self.elapsed_seconds,
             "original_shape":   list(self.original_shape),
             "warnings":         self.warnings,
+            "source":           self.source,
+            "recommended_engine": self.recommended_engine,
         }
 
     def to_json(self, indent: int = 2) -> str:
@@ -289,7 +337,8 @@ class EDAReport:
         rows, cols = self.original_shape
         return (
             f"EDAReport(rows={rows:,}, cols={cols}, "
-            f"sample={self.sample_size:,}, elapsed={self.elapsed_seconds:.2f}s)"
+            f"sample={self.sample_size:,}, elapsed={self.elapsed_seconds:.2f}s, "
+            f"engine={self.recommended_engine!r})"
         )
 
 

@@ -8,3 +8,6 @@ __pycache__/
 .vscode/
 .DS_Store
 Thumbs.db
+.pytest_cache/
+examples/output/
+flasheda_report.pdf
