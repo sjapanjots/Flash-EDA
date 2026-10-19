@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 
 from ..engine.backends import is_available
@@ -98,7 +99,7 @@ def _canonical(df: pd.DataFrame, cols: list) -> list:
 def _cell(v) -> str:
     if v is None or (isinstance(v, float) and v != v) or v is pd.NA or v is pd.NaT:
         return "<null>"
-    if isinstance(v, bool):
+    if isinstance(v, (bool, np.bool_)):
         return str(v)
     try:
         return f"{float(v):.6g}"

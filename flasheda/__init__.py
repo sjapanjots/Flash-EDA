@@ -8,14 +8,17 @@ from typing import Union, Optional
 import pandas as pd
 
 from . import codegen, engine
+from .clean import clean
 from .engine import available_engines, choose_engine, inspect_source, sample, get_sample_size, set_sample_size
 from .analyzers import overview, missing, numeric, categorical, correlation
+from .analyzers import target as target_analyzer
 from .report import EDAReport
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __all__ = [
     "analyze",
     "available_engines",
+    "clean",
     "codegen",
     "engine",
     "get_sample_size",
@@ -34,9 +37,13 @@ def analyze(
     save_pdf: bool = True,
     pdf_path: str = "flasheda_report.pdf",
     engine: Optional[str] = None,
+    target: Optional[str] = None,
 ) -> EDAReport:
     """
     Analyse a fixed-size sample of `source` (DataFrame, CSV/TSV or Parquet path).
+
+    `target` names the column you want to predict; it adds task detection,
+    class balance, per-feature predictive power and leakage checks.
 
     `engine` forces the engine recommended for full-size work; by default it
     is chosen from the dataset's row count.
@@ -45,6 +52,8 @@ def analyze(
     n = n or get_sample_size()
 
     info = inspect_source(source)
+    if target is not None and target not in info.columns:
+        raise KeyError(f"Target column {target!r} not found. Columns: {info.columns}")
     sampled = sample(source, n=n, random_state=random_state)
     original_shape = info.shape
 
@@ -55,6 +64,8 @@ def analyze(
         "categorical": lambda: categorical.analyze(sampled),
         "correlation": lambda: correlation.analyze(sampled),
     }
+    if target is not None:
+        tasks["target"] = lambda: target_analyzer.analyze(sampled, target, random_state)
 
     results: dict = {}
     with ThreadPoolExecutor(max_workers=5) as pool:
@@ -80,6 +91,20 @@ def analyze(
     if corr.get("numeric_strong_pairs"):
         warnings.append(f"{len(corr['numeric_strong_pairs'])} strongly correlated pair(s) found")
 
+    tgt = results.get("target", {})
+    if "error" in tgt:
+        raise RuntimeError(f"Target analysis failed: {tgt['error']}")
+    if tgt.get("leakage_columns"):
+        cols = ", ".join(str(l["column"]) for l in tgt["leakage_columns"])
+        warnings.append(f"Possible target leakage: {cols}")
+    if tgt.get("imbalanced"):
+        warnings.append(
+            f"Imbalanced target: minority class is {tgt['minority_pct']}% "
+            f"(ratio {tgt['imbalance_ratio']}:1)"
+        )
+    if tgt.get("null_count"):
+        warnings.append(f"Target {target!r} is null in {tgt['null_pct']}% of sampled rows")
+
     elapsed = round(time.perf_counter() - t0, 3)
 
     report = EDAReport(
@@ -92,6 +117,7 @@ def analyze(
         elapsed_seconds=elapsed,
         original_shape=original_shape,
         warnings=warnings,
+        target=tgt,
         source=str(info.path) if info.path else None,
         recommended_engine=choose_engine(info.n_rows, prefer=engine),
         sample=sampled,

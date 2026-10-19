@@ -20,6 +20,11 @@ import pandas as pd
 from .backends import has_module, is_available
 
 CSV_EXTS = (".csv", ".tsv", ".txt")
+
+# DuckDB's CSV sniffer would turn "yes"/"no" into booleans and strings into
+# dates, which pandas and polars don't. Limiting the candidates keeps every
+# engine reading the same values.
+DUCKDB_CSV_TYPES = "auto_type_candidates = ['BIGINT', 'DOUBLE', 'VARCHAR']"
 PARQUET_EXTS = (".parquet", ".pq")
 
 

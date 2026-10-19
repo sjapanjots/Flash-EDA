@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 
 from .backends import is_available
-from .source import CSV_EXTS, PARQUET_EXTS, _is_polars_frame, csv_sep
+from .source import CSV_EXTS, DUCKDB_CSV_TYPES, PARQUET_EXTS, _is_polars_frame, csv_sep
 
 DEFAULT_SAMPLE_SIZE = 5_000
 _sample_size = DEFAULT_SAMPLE_SIZE
@@ -90,7 +90,7 @@ def _sample_duckdb(path: Path, n: int, random_state: int) -> pd.DataFrame:
         scan = "read_parquet(?)"
         params = [str(path)]
     else:
-        scan = "read_csv(?, delim = ?, header = true)"
+        scan = f"read_csv(?, delim = ?, header = true, {DUCKDB_CSV_TYPES})"
         params = [str(path), csv_sep(path)]
     query = (
         f"SELECT * FROM {scan} "

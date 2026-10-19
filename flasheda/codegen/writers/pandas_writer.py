@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from typing import Optional
 
-from ..steps import ClipOutliers, DropColumns, DropDuplicates, FillNull, Log1p, Plan
+from ..steps import (
+    ClipOutliers, DropColumns, DropDuplicates, DropNullRows, FillNull, GroupRare, Log1p,
+    MissingIndicator, NormalizeText, Plan, ToNumeric,
+)
 from .base import Writer, source_format
 
 
@@ -17,25 +20,39 @@ class PandasWriter(Writer):
         body = []
         for step in plan:
             body.append(self.comment(step))
-            if isinstance(step, DropColumns):
-                body.append(f"df = df.drop(columns={list(step.columns)!r})")
-            elif isinstance(step, DropDuplicates):
-                body.append("df = df.drop_duplicates().reset_index(drop=True)")
-            elif isinstance(step, FillNull):
-                body.append(f"df[{step.column!r}] = df[{step.column!r}].fillna({step.value!r})")
-            elif isinstance(step, ClipOutliers):
-                body.append(
-                    f"df[{step.column!r}] = df[{step.column!r}].clip({step.lower!r}, {step.upper!r})"
-                )
-            elif isinstance(step, Log1p):
-                c = f"df[{step.column!r}]"
-                body.append(f"{c} = np.sign({c}) * np.log1p(np.abs({c}))")
+            body.append(self._line(step))
         body.append("return df")
         return (
             "def transform(df: pd.DataFrame) -> pd.DataFrame:\n"
             + "    df = df.copy()\n"
             + self.indent([line for line in body if line])
         )
+
+    @staticmethod
+    def _line(step) -> str:
+        if isinstance(step, DropColumns):
+            return f"df = df.drop(columns={list(step.columns)!r})"
+        if isinstance(step, DropDuplicates):
+            return "df = df.drop_duplicates().reset_index(drop=True)"
+        c = f"df[{step.column!r}]"
+        if isinstance(step, DropNullRows):
+            return f"df = df[{c}.notna()].reset_index(drop=True)"
+        if isinstance(step, ToNumeric):
+            return (f'{c} = pd.to_numeric({c}.astype("string").str.strip(" "), '
+                    'errors="coerce").astype("float64")')
+        if isinstance(step, NormalizeText):
+            return f'{c} = {c}.str.strip(" ").str.lower()'
+        if isinstance(step, GroupRare):
+            return f"{c} = {c}.where({c}.isin({list(step.keep)!r}) | {c}.isna(), {step.other!r})"
+        if isinstance(step, MissingIndicator):
+            return f"df[{step.name!r}] = {c}.isna()"
+        if isinstance(step, FillNull):
+            return f"{c} = {c}.fillna({step.value!r})"
+        if isinstance(step, ClipOutliers):
+            return f"{c} = {c}.clip({step.lower!r}, {step.upper!r})"
+        if isinstance(step, Log1p):
+            return f"{c} = np.sign({c}) * np.log1p(np.abs({c}))"
+        raise TypeError(f"Unsupported step {step!r}")
 
     def main(self, source: Optional[str]) -> str:
         fmt = source_format(source)
