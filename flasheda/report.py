@@ -550,14 +550,18 @@ def _render_html(r: EDAReport) -> str:
         leaks = {l["column"] for l in t.get("leakage_columns", [])}
         summary = "".join(
             f"<tr><td>{_esc(k)}</td><td>{_esc(v)}</td></tr>" for k, v in _target_summary(t))
-        power = "".join(
-            f"<tr><td>{_esc(p['column'])}</td><td>"
-            f'<div class="bar-bg"><div class="bar-fill" style="width:{int(p["score"] * 100)}%;'
-            f'background:{"#e74c3c" if p["column"] in leaks else "#2f5bd3"}"></div></div>'
-            f"{p['score']}</td><td>"
-            f"{'<span class=\"badge danger\">possible leak</span>' if p['column'] in leaks else ''}"
-            f"</td></tr>"
-            for p in t.get("feature_power", [])[:15])
+        rows = []
+        for p in t.get("feature_power", [])[:15]:
+            leak = p["column"] in leaks
+            color = "#e74c3c" if leak else "#2f5bd3"
+            badge = '<span class="badge danger">possible leak</span>' if leak else ""
+            rows.append(
+                f"<tr><td>{_esc(p['column'])}</td><td>"
+                f'<div class="bar-bg"><div class="bar-fill" '
+                f'style="width:{int(p["score"] * 100)}%;background:{color}"></div></div>'
+                f"{p['score']}</td><td>{badge}</td></tr>"
+            )
+        power = "".join(rows)
         target_html = f"""
   <div class="card">
     <h2>Target: {_esc(t['target'])}</h2>

@@ -1,19 +1,31 @@
+from pathlib import Path
+
 from setuptools import setup, find_packages
 
 setup(
     name="flasheda",
     version="0.3.0",
-    description="Constant-time EDA for any dataset size — one line, fixed time.",
-    long_description=open("README.md", encoding="utf-8").read(),
+    description=(
+        "Fixed-time EDA for any dataset size, plus validated cleaning code "
+        "for pandas, polars, DuckDB and PySpark."
+    ),
+    long_description=Path(__file__).with_name("README.md").read_text(encoding="utf-8"),
     long_description_content_type="text/markdown",
     author="Japanjot Singh",
     author_email="sjapanjots@gmail.com",
     url="https://github.com/sjapanjots/Flash-EDA",
-    packages=find_packages(),
-    python_requires=">=3.8",
+    project_urls={
+        "Source": "https://github.com/sjapanjots/Flash-EDA",
+        "Changelog": "https://github.com/sjapanjots/Flash-EDA/blob/main/CHANGELOG.md",
+        "Issues": "https://github.com/sjapanjots/Flash-EDA/issues",
+    },
+    license="MIT",
+    license_files=["MIT.License"],
+    packages=find_packages(exclude=["tests", "tests.*", "examples"]),
+    python_requires=">=3.9",
     install_requires=[
-        "pandas>=1.3.0",
-        "numpy>=1.21.0",
+        "pandas>=2.0",
+        "numpy>=1.22",
         "scipy>=1.7.0",
         "rich>=12.0.0",
         "jinja2>=3.0.0",
@@ -23,10 +35,15 @@ setup(
     extras_require={
         "fast": ["duckdb>=0.10", "polars>=0.20", "pyarrow>=12"],
         "spark": ["pyspark>=3.4"],
-        "dev": ["pytest>=7", "duckdb>=0.10", "polars>=0.20", "pyarrow>=12"],
+        "dev": ["pytest>=7", "duckdb>=0.10", "polars>=0.20", "pyarrow>=12", "build", "twine"],
     },
+    keywords=["eda", "data-cleaning", "pandas", "polars", "duckdb", "pyspark", "code-generation"],
     classifiers=[
+        "Development Status :: 4 - Beta",
+        "Intended Audience :: Science/Research",
+        "Intended Audience :: Developers",
         "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3 :: Only",
         "Topic :: Scientific/Engineering :: Information Analysis",
     ],
 )
