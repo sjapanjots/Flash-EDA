@@ -8,7 +8,7 @@ setup(
     long_description_content_type="text/markdown",
     author="Japanjot Singh",
     author_email="sjapanjots@gmail.com",
-    url="https://github.com/sjapanjots/flasheda",
+    url="https://github.com/sjapanjots/Flash-EDA",
     packages=find_packages(),
     python_requires=">=3.8",
     install_requires=[

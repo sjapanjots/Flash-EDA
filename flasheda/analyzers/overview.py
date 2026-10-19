@@ -59,7 +59,7 @@ def _simplify_dtype(dtype) -> str:
         return "boolean"
     if "datetime" in s:
         return "datetime"
-    if "object" in s or "string" in s:
+    if "object" in s or "string" in s or s == "str":  # pandas 3 string dtype prints as "str"
         return "string/object"
     if "category" in s:
         return "category"
