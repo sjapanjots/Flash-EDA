@@ -11,6 +11,8 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Any, List
 
+from ..clean.detectors import looks_like_datetime
+
 
 HIGH_CARDINALITY_RATIO = 0.5   # unique/total > 50% → high cardinality warning
 TOP_K = 10
@@ -51,8 +53,9 @@ def analyze(df: pd.DataFrame) -> Dict[str, Any]:
         mode_val = vc.index[0] if len(vc) > 0 else None
         mode_pct = round(vc.iloc[0] / n * 100, 2) if len(vc) > 0 else 0.0
 
-        # Detect potential ID columns (very high cardinality)
-        likely_id = cardinality_ratio > 0.95
+        # Detect potential ID columns (very high cardinality); unique
+        # timestamps are high-cardinality too, but they're not identifiers
+        likely_id = cardinality_ratio > 0.95 and not looks_like_datetime(df[col])
 
         results[col] = {
             "count": n,

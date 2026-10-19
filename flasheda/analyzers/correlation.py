@@ -18,11 +18,13 @@ from itertools import combinations
 
 STRONG_CORR_THRESHOLD = 0.80
 MAX_COLS_FOR_HEATMAP = 20   # skip heatmap if too many cols (slow to render)
+MAX_CRAMER_LEVELS = 100     # Cramér's V is meaningless (and slow) for ID-like columns
 
 
 def analyze(df: pd.DataFrame) -> Dict[str, Any]:
     num_cols = df.select_dtypes(include=["number"]).columns.tolist()
     cat_cols = df.select_dtypes(include=["object", "string", "category"]).columns.tolist()
+    cramer_cols = [c for c in cat_cols if 2 <= df[c].nunique() <= MAX_CRAMER_LEVELS]
 
     # ── Numeric correlations ────────────────────────────────────────────────
     pearson_matrix: Dict[str, Any] = {}
@@ -46,8 +48,8 @@ def analyze(df: pd.DataFrame) -> Dict[str, Any]:
 
     # ── Cramér's V for categoricals ─────────────────────────────────────────
     cramer_pairs: List[Dict[str, Any]] = []
-    if len(cat_cols) >= 2:
-        for a, b in combinations(cat_cols[:10], 2):   # cap at 10 cols
+    if len(cramer_cols) >= 2:
+        for a, b in combinations(cramer_cols[:10], 2):   # cap at 10 cols
             v = _cramers_v(df[a], df[b])
             if v is not None and v >= STRONG_CORR_THRESHOLD:
                 cramer_pairs.append({"col_a": a, "col_b": b, "cramers_v": round(v, 4)})

@@ -10,12 +10,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 import pandas as pd
 
 from .planner import plan_from_report
-from .steps import ClipOutliers, DropColumns, DropDuplicates, FillNull, Log1p, Plan
+from .steps import (
+    ClipOutliers, DropColumns, DropDuplicates, DropNullRows, FillNull, GroupRare, Log1p,
+    MissingIndicator, NormalizeText, Plan, ToNumeric,
+)
 from .validate import ValidationResult, compare_frames, run_generated, validate_code
 from .writers import WRITERS, get_writer
 
@@ -26,6 +29,7 @@ class GeneratedCode:
     code: str
     plan: Plan
     sample: Optional[pd.DataFrame] = field(default=None, repr=False)
+    report: Any = field(default=None, repr=False)   # set by flasheda.clean()
 
     def __str__(self) -> str:
         return self.code
@@ -64,10 +68,15 @@ __all__ = [
     "ClipOutliers",
     "DropColumns",
     "DropDuplicates",
+    "DropNullRows",
     "FillNull",
     "GeneratedCode",
+    "GroupRare",
     "Log1p",
+    "MissingIndicator",
+    "NormalizeText",
     "Plan",
+    "ToNumeric",
     "ValidationResult",
     "WRITERS",
     "compare_frames",

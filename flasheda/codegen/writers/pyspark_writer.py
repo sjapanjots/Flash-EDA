@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from typing import Optional
 
-from ..steps import ClipOutliers, DropColumns, DropDuplicates, FillNull, Log1p, Plan
+from ..steps import (
+    ClipOutliers, DropColumns, DropDuplicates, DropNullRows, FillNull, GroupRare, Log1p,
+    MissingIndicator, NormalizeText, Plan, ToNumeric,
+)
 from .base import Writer, source_format
 
 
@@ -23,30 +26,40 @@ class PySparkWriter(Writer):
         body = []
         for step in plan:
             body.append(self.comment(step))
-            if isinstance(step, DropColumns):
-                body.append(f"df = df.drop(*{list(step.columns)!r})")
-            elif isinstance(step, DropDuplicates):
-                body.append("df = df.dropDuplicates()")
-            elif isinstance(step, FillNull):
-                body.append(
-                    f"df = df.withColumn({step.column!r}, "
-                    f"F.coalesce({col(step.column)}, F.lit({step.value!r})))"
-                )
-            elif isinstance(step, ClipOutliers):
-                c = col(step.column)
-                body.append(
-                    f"df = df.withColumn({step.column!r}, "
-                    f"F.when({c} < {step.lower!r}, F.lit({step.lower!r}))"
-                    f".when({c} > {step.upper!r}, F.lit({step.upper!r}))"
-                    f".otherwise({c}))"
-                )
-            elif isinstance(step, Log1p):
-                c = col(step.column)
-                body.append(f"df = df.withColumn({step.column!r}, F.signum({c}) * F.log1p(F.abs({c})))")
+            body.append(self._line(step))
         body.append("return df")
         return "def transform(df: DataFrame) -> DataFrame:\n" + self.indent(
             [line for line in body if line]
         )
+
+    @staticmethod
+    def _line(step) -> str:
+        if isinstance(step, DropColumns):
+            return f"df = df.drop(*{list(step.columns)!r})"
+        if isinstance(step, DropDuplicates):
+            return "df = df.dropDuplicates()"
+        c = col(step.column)
+        if isinstance(step, DropNullRows):
+            return f"df = df.filter({c}.isNotNull())"
+        if isinstance(step, MissingIndicator):
+            return f"df = df.withColumn({step.name!r}, {c}.isNull())"
+        if isinstance(step, ToNumeric):
+            e = f'F.trim({c}.cast("string")).cast("double")'
+        elif isinstance(step, NormalizeText):
+            e = f"F.lower(F.trim({c}))"
+        elif isinstance(step, GroupRare):
+            e = (f"F.when({c}.isNull() | {c}.isin({list(step.keep)!r}), {c})"
+                 f".otherwise(F.lit({step.other!r}))")
+        elif isinstance(step, FillNull):
+            e = f"F.coalesce({c}, F.lit({step.value!r}))"
+        elif isinstance(step, ClipOutliers):
+            e = (f"F.when({c} < {step.lower!r}, F.lit({step.lower!r}))"
+                 f".when({c} > {step.upper!r}, F.lit({step.upper!r})).otherwise({c})")
+        elif isinstance(step, Log1p):
+            e = f"F.signum({c}) * F.log1p(F.abs({c}))"
+        else:
+            raise TypeError(f"Unsupported step {step!r}")
+        return f"df = df.withColumn({step.column!r}, {e})"
 
     def main(self, source: Optional[str]) -> str:
         fmt = source_format(source)
