@@ -7,12 +7,22 @@ from typing import Union, Optional
 
 import pandas as pd
 
-from .sampler import sample, get_sample_size, set_sample_size
+from . import codegen, engine
+from .engine import available_engines, choose_engine, inspect_source, sample, get_sample_size, set_sample_size
 from .analyzers import overview, missing, numeric, categorical, correlation
 from .report import EDAReport
 
-__version__ = "0.1.2"
-__all__ = ["analyze", "set_sample_size", "get_sample_size", "EDAReport"]
+__version__ = "0.2.0"
+__all__ = [
+    "analyze",
+    "available_engines",
+    "codegen",
+    "engine",
+    "get_sample_size",
+    "inspect_source",
+    "set_sample_size",
+    "EDAReport",
+]
 
 
 def analyze(
@@ -23,20 +33,20 @@ def analyze(
     random_state: int = 42,
     save_pdf: bool = True,
     pdf_path: str = "flasheda_report.pdf",
+    engine: Optional[str] = None,
 ) -> EDAReport:
+    """
+    Analyse a fixed-size sample of `source` (DataFrame, CSV/TSV or Parquet path).
 
+    `engine` forces the engine recommended for full-size work; by default it
+    is chosen from the dataset's row count.
+    """
     t0 = time.perf_counter()
     n = n or get_sample_size()
 
-    if isinstance(source, pd.DataFrame):
-        original_shape = source.shape
-    else:
-        original_shape = (-1, -1)
-
+    info = inspect_source(source)
     sampled = sample(source, n=n, random_state=random_state)
-
-    if original_shape == (-1, -1):
-        original_shape = sampled.shape
+    original_shape = info.shape
 
     tasks = {
         "overview":    lambda: overview.analyze(sampled, original_shape),
@@ -82,6 +92,9 @@ def analyze(
         elapsed_seconds=elapsed,
         original_shape=original_shape,
         warnings=warnings,
+        source=str(info.path) if info.path else None,
+        recommended_engine=choose_engine(info.n_rows, prefer=engine),
+        sample=sampled,
     )
 
     if show:
