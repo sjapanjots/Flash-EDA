@@ -12,6 +12,7 @@ from .clean import clean
 from .modeling import train
 from .contract import check
 from .compare import compare
+from .timeseries import timeseries
 from .engine import available_engines, choose_engine, inspect_source, sample, get_sample_size, set_sample_size, sql
 from .analyzers import overview, missing, numeric, categorical, correlation
 from .analyzers import target as target_analyzer
@@ -31,6 +32,7 @@ __all__ = [
     "inspect_source",
     "set_sample_size",
     "sql",
+    "timeseries",
     "train",
     "EDAReport",
 ]
