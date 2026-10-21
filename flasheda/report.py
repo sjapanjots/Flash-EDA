@@ -2,7 +2,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 import pandas as pd
 
@@ -290,10 +290,21 @@ class EDAReport:
     # Code generation
     # ──────────────────────────────────────────────────────────────────────
 
-    def plan(self, **options):
-        """Engine-neutral cleaning plan built from this report's findings."""
+    def plan(self, features: Union[bool, Dict[str, Any]] = False, **options):
+        """
+        Engine-neutral cleaning plan built from this report's findings.
+
+        features : True (or a dict of options for flasheda.features.plan_features)
+                   to append model-ready features: date parts, encodings, ratios
+        options  : passed to the cleaning planner, e.g. group_rare=False
+        """
         from .codegen import plan_from_report
-        return plan_from_report(self, **options)
+        plan = plan_from_report(self, **options)
+        if features:
+            from .features import plan_features
+            plan = plan_features(self, plan, target=options.get("target"),
+                                 **(features if isinstance(features, dict) else {}))
+        return plan
 
     def codegen(
         self,
@@ -301,6 +312,7 @@ class EDAReport:
         *,
         output: str = "cleaned.parquet",
         validate: bool = True,
+        features: Union[bool, Dict[str, Any]] = False,
         **plan_options,
     ):
         """
@@ -310,12 +322,13 @@ class EDAReport:
                         (default: the engine recommended for this dataset size)
         validate      : run the generated code on the sample and raise if it
                         doesn't match the reference result
+        features      : also add model-ready features (see EDAReport.plan)
         plan_options  : passed to the planner, e.g. clip_outliers=False
         """
         from .codegen import generate
 
         code = generate(
-            self.plan(**plan_options),
+            self.plan(features=features, **plan_options),
             engine or self.recommended_engine,
             source=self.source,
             output=output,
@@ -326,6 +339,12 @@ class EDAReport:
             if not result.ok:
                 raise RuntimeError(f"Generated code failed validation: {result}")
         return code
+
+    def train(self, engine: Optional[str] = None, **options):
+        """Compare models on the sample and generate prep + training scripts
+        (see flasheda.modeling.train_from_report)."""
+        from .modeling import train_from_report
+        return train_from_report(self, engine, **options)
 
     # ──────────────────────────────────────────────────────────────────────
     # Serialisation

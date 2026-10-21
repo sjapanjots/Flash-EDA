@@ -105,13 +105,85 @@ class Log1p:
     reason: str = ""
 
 
+# ── Feature steps ───────────────────────────────────────────────────────────
+
+DATE_PARTS = ("year", "month", "day", "dayofweek", "hour")
+
+
+@dataclass(frozen=True)
+class DateParts:
+    """
+    Add `<column>_<part>` columns from a date/timestamp column.
+    dayofweek is ISO: Monday = 1 ... Sunday = 7. Unparseable values give null.
+    `is_text` says the column holds ISO-8601 text that must be parsed first.
+    """
+
+    column: str
+    parts: tuple
+    names: tuple
+    is_text: bool = True
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class Ratio:
+    """Add `name` = numerator / denominator (null where the denominator is 0)."""
+
+    numerator: str
+    denominator: str
+    name: str
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class OneHot:
+    """Add one boolean column per value: names[i] = (column == values[i])."""
+
+    column: str
+    values: tuple
+    names: tuple
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class FrequencyEncode:
+    """Replace each value with its share of the sample; unseen or null → `default`."""
+
+    column: str
+    mapping: tuple           # ((value, share), ...)
+    default: float = 0.0
+    reason: str = ""
+
+
 ROW_STEPS = (DropColumns, DropDuplicates, DropNullRows)
-COLUMN_STEPS = (ToNumeric, NormalizeText, GroupRare, MissingIndicator, FillNull, ClipOutliers, Log1p)
+COLUMN_STEPS = (
+    ToNumeric, NormalizeText, GroupRare, MissingIndicator, FillNull, ClipOutliers, Log1p,
+    DateParts, Ratio, OneHot, FrequencyEncode,
+)
 
 Step = Union[
     DropColumns, DropDuplicates, DropNullRows,
     ToNumeric, NormalizeText, GroupRare, MissingIndicator, FillNull, ClipOutliers, Log1p,
+    DateParts, Ratio, OneHot, FrequencyEncode,
 ]
+
+
+def inputs(step) -> tuple:
+    """Columns a column step reads."""
+    if isinstance(step, Ratio):
+        return (step.numerator, step.denominator)
+    return (step.column,)
+
+
+def outputs(step) -> tuple:
+    """New columns a column step adds (empty when it only replaces values)."""
+    if isinstance(step, MissingIndicator):
+        return (step.name,)
+    if isinstance(step, Ratio):
+        return (step.name,)
+    if isinstance(step, (DateParts, OneHot)):
+        return step.names
+    return ()
 
 
 @dataclass
@@ -134,13 +206,20 @@ class Plan:
         them together; row steps keep their position in the order.
         """
         pending: List[Step] = []
+        added: set = set()
         for step in self.steps:
             if isinstance(step, COLUMN_STEPS):
+                # A step reading a column added in this segment needs that
+                # column to exist first, so it starts a new segment.
+                if added.intersection(inputs(step)):
+                    yield "columns", pending
+                    pending, added = [], set()
                 pending.append(step)
+                added.update(outputs(step))
                 continue
             if pending:
                 yield "columns", pending
-                pending = []
+                pending, added = [], set()
             yield "row", step
         if pending:
             yield "columns", pending
@@ -175,6 +254,23 @@ class Plan:
             elif isinstance(step, Log1p):
                 x = out[step.column]
                 out[step.column] = np.sign(x) * np.log1p(np.abs(x))
+            elif isinstance(step, DateParts):
+                ts = out[step.column]
+                if step.is_text:
+                    ts = pd.to_datetime(ts, errors="coerce", format="ISO8601")
+                for part, name in zip(step.parts, step.names):
+                    value = ts.dt.dayofweek + 1 if part == "dayofweek" else getattr(ts.dt, part)
+                    out[name] = value.astype("float64")
+            elif isinstance(step, Ratio):
+                den = out[step.denominator].astype("float64")
+                out[step.name] = out[step.numerator].astype("float64") / den.where(den != 0)
+            elif isinstance(step, OneHot):
+                s = out[step.column]
+                for value, name in zip(step.values, step.names):
+                    out[name] = s.eq(value).fillna(False).astype(bool)
+            elif isinstance(step, FrequencyEncode):
+                mapping = dict(step.mapping)
+                out[step.column] = out[step.column].map(mapping).astype("float64").fillna(step.default)
         return out
 
 
@@ -197,4 +293,12 @@ def _label(step: Step) -> str:
         return f"fill nulls in {step.column!r} with {step.value!r}"
     if isinstance(step, ClipOutliers):
         return f"clip {step.column!r} to [{step.lower}, {step.upper}]"
-    return f"log transform {step.column!r}"
+    if isinstance(step, Log1p):
+        return f"log transform {step.column!r}"
+    if isinstance(step, DateParts):
+        return f"add {', '.join(step.parts)} from {step.column!r}"
+    if isinstance(step, Ratio):
+        return f"add {step.name!r} = {step.numerator!r} / {step.denominator!r}"
+    if isinstance(step, OneHot):
+        return f"one-hot encode {step.column!r} ({len(step.values)} columns)"
+    return f"frequency-encode {step.column!r}"

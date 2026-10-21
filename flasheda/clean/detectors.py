@@ -17,7 +17,6 @@ NUMERIC_TEXT_MIN_RATIO = 0.95    # share of values that must parse as numbers
 LEADING_ZERO_MAX_RATIO = 0.10    # more than this looks like codes (zip, phone)
 RARE_MIN_SHARE = 0.01            # categories below 1% of rows are "rare"
 RARE_MIN_UNIQUE = 10             # only group columns with more distinct values
-RARE_MAX_KEEP = 25
 MISSING_MIN_ROWS = 30
 MISSING_MIN_GAP = 0.10           # class-share gap between missing / present rows
 MISSING_MIN_EFFECT = 0.20        # regression: mean gap in target std units
@@ -78,7 +77,7 @@ def rare_categories(s: pd.Series) -> Optional[Tuple[tuple, str]]:
     shares = values.value_counts(normalize=True)
     if len(shares) <= RARE_MIN_UNIQUE:
         return None
-    keep = shares[shares >= RARE_MIN_SHARE].index[:RARE_MAX_KEEP]
+    keep = shares[shares >= RARE_MIN_SHARE].index   # at most 100 values can each be ≥ 1%
     if len(keep) == 0 or len(keep) == len(shares):
         return None
     other = "other"

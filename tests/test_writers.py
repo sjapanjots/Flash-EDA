@@ -5,8 +5,9 @@ import pandas as pd
 import pytest
 
 from flasheda.codegen import (
-    ClipOutliers, DropColumns, DropDuplicates, DropNullRows, FillNull, GroupRare, Log1p,
-    MissingIndicator, NormalizeText, Plan, ToNumeric, compare_frames, generate,
+    ClipOutliers, DateParts, DropColumns, DropDuplicates, DropNullRows, FillNull,
+    FrequencyEncode, GroupRare, Log1p, MissingIndicator, NormalizeText, OneHot, Plan, Ratio,
+    ToNumeric, compare_frames, generate,
 )
 
 RUNNABLE = ["pandas", "polars", "duckdb"]
@@ -87,7 +88,58 @@ def test_clean_steps_reference_semantics(dirty):
     assert out["price_was_missing"].sum() > 0          # includes "N/A" turned into null
 
 
-@pytest.mark.parametrize("plan", [FULL_PLAN, CLEAN_PLAN])
+# Phase 3 feature steps. FillNull on a date part comes after DateParts in the
+# same run of column steps, so it must start a new segment in polars/DuckDB.
+FEATURE_PLAN = Plan([
+    DateParts("when", ("year", "month", "day", "dayofweek", "hour"),
+              ("when_year", "when_month", "when_day", "when_dayofweek", "when_hour")),
+    Ratio("a", "b", "a_per_b"),
+    OneHot("city", ("delhi", "pune"), ("city_delhi", "city_pune")),
+    FrequencyEncode("source", (("web", 0.6), ("app", 0.3)), 0.0),
+    FillNull("when_year", 2023),
+    DropColumns(("when", "city")),
+])
+
+
+@pytest.fixture(scope="module")
+def featured() -> pd.DataFrame:
+    rng = np.random.default_rng(3)
+    n = 2_000
+    when = (pd.Timestamp("2023-01-01") + pd.to_timedelta(rng.integers(0, 10**6, n), unit="min"))
+    when = when.strftime("%Y-%m-%d %H:%M:%S").to_numpy().astype(object)
+    when[::7] = pd.Series(when[::7]).str[:10].to_numpy()   # some date-only values
+    when[rng.random(n) < 0.05] = None
+    when[rng.random(n) < 0.02] = "not a date"
+    b = rng.integers(0, 5, n).astype(float)
+    b[rng.random(n) < 0.05] = np.nan
+    return pd.DataFrame({
+        "when": when,
+        "a": rng.normal(10, 3, n),
+        "b": b,
+        "city": rng.choice(["delhi", "pune", "goa", None], n),
+        "source": rng.choice(["web", "app", "email", None], n),
+    })
+
+
+@pytest.mark.parametrize("eng", RUNNABLE)
+def test_feature_steps_match_reference(featured, eng):
+    result = generate(FEATURE_PLAN, eng, sample=featured).validate()
+    assert result.ok and not result.skipped, str(result)
+
+
+def test_feature_steps_reference_semantics(featured):
+    out = FEATURE_PLAN.apply(featured)
+    first = pd.Timestamp(featured["when"].dropna().iloc[0])
+    assert out.loc[0, "when_dayofweek"] in range(1, 8)
+    assert out["when_year"].notna().all()                       # filled after DateParts
+    assert out.loc[featured["b"] == 0, "a_per_b"].isna().all()  # x / 0 → null
+    assert out.loc[featured["city"].isna(), ["city_delhi", "city_pune"]].eq(False).all().all()
+    assert set(out["source"].unique()) == {0.6, 0.3, 0.0}
+    assert {"when", "city"}.isdisjoint(out.columns)
+    assert first.isoweekday() in range(1, 8)
+
+
+@pytest.mark.parametrize("plan", [FULL_PLAN, CLEAN_PLAN, FEATURE_PLAN])
 def test_pyspark_code_is_valid_python(plan):
     ast.parse(generate(plan, "pyspark", source="data.csv").code)
 

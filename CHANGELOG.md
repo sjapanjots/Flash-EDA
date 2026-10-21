@@ -2,6 +2,21 @@
 
 All notable changes to FlashEDA. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — Phase 3: features and models
+
+### Added
+- `report.plan(features=True)` / `codegen(..., features=True)` / `clean(..., features=True)`: model-ready features, generated for all four engines and checked on the sample
+  - date/timestamp columns → year, month, day, day of week (ISO), hour
+  - categories: ≤ 15 values → one-hot; ≤ 500 → frequency encoding; more → dropped as free text
+  - ratios `a / b` between numeric columns, kept only when they predict the target clearly better than both inputs (computed before log/clip transforms)
+- `flasheda.train(source, target=...)` / `report.train()`: compares baseline, linear, random-forest and gradient-boosting models on the sample, using the recommended metric and split (time-based when there is a date column); returns a leaderboard and two scripts:
+  - `prep.py`: cleaning + features on the full data (any engine)
+  - `train.py`: scikit-learn training with cross-validation that saves `model.joblib`; checked by running it on the sample
+- Optional installs: `flasheda[ml]` (scikit-learn) and `flasheda[all]`
+
+### Fixed
+- Rare-value grouping kept at most 25 values, so common values were lumped into `other` too
+
 ## [0.3.0] — Phase 2: target analysis and target-aware cleaning
 
 ### Added
@@ -42,5 +57,6 @@ All notable changes to FlashEDA. Versions follow [Semantic Versioning](https://s
 ## [0.1.3] and earlier
 - Fixed-sample EDA: overview, missing values, numeric and categorical summaries, correlations; console, HTML and PDF reports.
 
+[0.4.0]: https://github.com/sjapanjots/Flash-EDA/releases/tag/v0.4.0
 [0.3.0]: https://github.com/sjapanjots/Flash-EDA/releases/tag/v0.3.0
 [0.2.0]: https://github.com/sjapanjots/Flash-EDA/compare/41829f5...41c1278

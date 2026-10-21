@@ -16,8 +16,9 @@ import pandas as pd
 
 from .planner import plan_from_report
 from .steps import (
-    ClipOutliers, DropColumns, DropDuplicates, DropNullRows, FillNull, GroupRare, Log1p,
-    MissingIndicator, NormalizeText, Plan, ToNumeric,
+    ClipOutliers, DateParts, DropColumns, DropDuplicates, DropNullRows, FillNull,
+    FrequencyEncode, GroupRare, Log1p, MissingIndicator, NormalizeText, OneHot, Plan, Ratio,
+    ToNumeric,
 )
 from .validate import ValidationResult, compare_frames, run_generated, validate_code
 from .writers import WRITERS, get_writer
@@ -66,16 +67,20 @@ def generate(
 
 __all__ = [
     "ClipOutliers",
+    "DateParts",
     "DropColumns",
     "DropDuplicates",
     "DropNullRows",
     "FillNull",
+    "FrequencyEncode",
     "GeneratedCode",
     "GroupRare",
     "Log1p",
     "MissingIndicator",
     "NormalizeText",
+    "OneHot",
     "Plan",
+    "Ratio",
     "ToNumeric",
     "ValidationResult",
     "WRITERS",

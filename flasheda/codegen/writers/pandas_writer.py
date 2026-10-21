@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import Optional
 
 from ..steps import (
-    ClipOutliers, DropColumns, DropDuplicates, DropNullRows, FillNull, GroupRare, Log1p,
-    MissingIndicator, NormalizeText, Plan, ToNumeric,
+    ClipOutliers, DateParts, DropColumns, DropDuplicates, DropNullRows, FillNull,
+    FrequencyEncode, GroupRare, Log1p, MissingIndicator, NormalizeText, OneHot, Plan, Ratio,
+    ToNumeric,
 )
 from .base import Writer, source_format
 
@@ -20,7 +21,7 @@ class PandasWriter(Writer):
         body = []
         for step in plan:
             body.append(self.comment(step))
-            body.append(self._line(step))
+            body.extend(self._line(step).split("\n"))
         body.append("return df")
         return (
             "def transform(df: pd.DataFrame) -> pd.DataFrame:\n"
@@ -34,6 +35,10 @@ class PandasWriter(Writer):
             return f"df = df.drop(columns={list(step.columns)!r})"
         if isinstance(step, DropDuplicates):
             return "df = df.drop_duplicates().reset_index(drop=True)"
+        if isinstance(step, Ratio):
+            den = f'df[{step.denominator!r}].astype("float64")'
+            return (f'df[{step.name!r}] = df[{step.numerator!r}].astype("float64") / '
+                    f"{den}.where({den} != 0)")
         c = f"df[{step.column!r}]"
         if isinstance(step, DropNullRows):
             return f"df = df[{c}.notna()].reset_index(drop=True)"
@@ -52,6 +57,19 @@ class PandasWriter(Writer):
             return f"{c} = {c}.clip({step.lower!r}, {step.upper!r})"
         if isinstance(step, Log1p):
             return f"{c} = np.sign({c}) * np.log1p(np.abs({c}))"
+        if isinstance(step, DateParts):
+            src = f'pd.to_datetime({c}, errors="coerce", format="ISO8601")' if step.is_text else c
+            lines = [f"ts = {src}"]
+            for part, name in zip(step.parts, step.names):
+                value = "ts.dt.dayofweek + 1" if part == "dayofweek" else f"ts.dt.{part}"
+                lines.append(f'df[{name!r}] = ({value}).astype("float64")')
+            return "\n".join(lines)
+        if isinstance(step, OneHot):
+            return "\n".join(
+                f"df[{name!r}] = {c}.eq({value!r}).fillna(False).astype(bool)"
+                for value, name in zip(step.values, step.names))
+        if isinstance(step, FrequencyEncode):
+            return f'{c} = {c}.map({dict(step.mapping)!r}).astype("float64").fillna({step.default!r})'
         raise TypeError(f"Unsupported step {step!r}")
 
     def main(self, source: Optional[str]) -> str:

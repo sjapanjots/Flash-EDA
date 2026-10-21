@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import List, Optional
 
 from ..steps import (
-    ClipOutliers, DropColumns, DropDuplicates, DropNullRows, FillNull, GroupRare, Log1p,
-    MissingIndicator, NormalizeText, Plan, Step, ToNumeric,
+    ClipOutliers, DateParts, DropColumns, DropDuplicates, DropNullRows, FillNull,
+    FrequencyEncode, GroupRare, Log1p, MissingIndicator, NormalizeText, OneHot, Plan, Ratio, Step,
+    ToNumeric,
 )
 from ...engine.source import DUCKDB_CSV_TYPES
 from .base import Writer, source_format
@@ -64,9 +65,31 @@ class DuckDBWriter(Writer):
     def _columns(steps: List[Step]) -> str:
         replaced = {}
         added = {}
+        def current(name: str) -> str:
+            return replaced.get(name, ident(name))
+
         for step in steps:
-            col = replaced.get(step.column, ident(step.column))
-            if isinstance(step, ToNumeric):
+            if isinstance(step, Ratio):
+                num = f"CAST({current(step.numerator)} AS DOUBLE)"
+                den = f"CAST({current(step.denominator)} AS DOUBLE)"
+                added[step.name] = f"{num} / NULLIF({den}, 0)"
+                continue
+            col = current(step.column)
+            if isinstance(step, DateParts):
+                ts = f"TRY_CAST({col} AS TIMESTAMP)" if step.is_text else col
+                for part, name in zip(step.parts, step.names):
+                    fn = {"year": "year", "month": "month", "day": "day",
+                          "dayofweek": "isodow", "hour": "hour"}[part]
+                    added[name] = f"CAST({fn}({ts}) AS DOUBLE)"
+                continue
+            if isinstance(step, OneHot):
+                for value, name in zip(step.values, step.names):
+                    added[name] = f"coalesce({col} = {literal(value)}, false)"
+                continue
+            if isinstance(step, FrequencyEncode):
+                cases = " ".join(f"WHEN {literal(v)} THEN {literal(float(f))}" for v, f in step.mapping)
+                col = f"CASE {col} {cases} ELSE {literal(float(step.default))} END"
+            elif isinstance(step, ToNumeric):
                 col = f"TRY_CAST(trim(CAST({col} AS VARCHAR), ' ') AS DOUBLE)"
             elif isinstance(step, NormalizeText):
                 col = f"lower(trim({col}, ' '))"
