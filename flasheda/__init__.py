@@ -9,12 +9,13 @@ import pandas as pd
 
 from . import codegen, engine
 from .clean import clean
+from .modeling import train
 from .engine import available_engines, choose_engine, inspect_source, sample, get_sample_size, set_sample_size
 from .analyzers import overview, missing, numeric, categorical, correlation
 from .analyzers import target as target_analyzer
 from .report import EDAReport
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 __all__ = [
     "analyze",
     "available_engines",
@@ -24,6 +25,7 @@ __all__ = [
     "get_sample_size",
     "inspect_source",
     "set_sample_size",
+    "train",
     "EDAReport",
 ]
 

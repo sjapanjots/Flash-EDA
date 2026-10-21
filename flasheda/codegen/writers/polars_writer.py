@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import Dict, List, Optional
 
 from ..steps import (
-    ClipOutliers, DropColumns, DropDuplicates, DropNullRows, FillNull, GroupRare, Log1p,
-    MissingIndicator, NormalizeText, Plan, ToNumeric,
+    ClipOutliers, DateParts, DropColumns, DropDuplicates, DropNullRows, FillNull,
+    FrequencyEncode, GroupRare, Log1p, MissingIndicator, NormalizeText, OneHot, Plan, Ratio,
+    ToNumeric,
 )
 from .base import Writer, source_format
 
@@ -47,10 +48,36 @@ class PolarsWriter(Writer):
         # same column are composed into a single expression, in order.
         exprs: Dict[str, str] = {}
         reasons: Dict[str, List[str]] = {}
+        def current(name: str) -> str:
+            return exprs.get(name, f"pl.col({name!r})")
+
+        def add(name: str, expr: str, reason: str) -> None:
+            exprs[name] = f"({expr}).alias({name!r})"
+            reasons.setdefault(name, []).append(reason)
+
         for step in steps:
-            e = exprs.get(step.column, f"pl.col({step.column!r})")
+            if isinstance(step, Ratio):
+                num = f"{current(step.numerator)}.cast(pl.Float64)"
+                den = f"{current(step.denominator)}.cast(pl.Float64)"
+                add(step.name, f"pl.when({den} != 0).then({num} / {den})", step.reason)
+                continue
+            e = current(step.column)
             out = step.column
-            if isinstance(step, ToNumeric):
+            if isinstance(step, DateParts):
+                ts = f"{e}.str.to_datetime(strict=False)" if step.is_text else e
+                for part, name in zip(step.parts, step.names):
+                    fn = {"year": "year", "month": "month", "day": "day",
+                          "dayofweek": "weekday", "hour": "hour"}[part]
+                    add(name, f"{ts}.dt.{fn}().cast(pl.Float64)", step.reason)
+                continue
+            if isinstance(step, OneHot):
+                for value, name in zip(step.values, step.names):
+                    add(name, f"({e} == {value!r}).fill_null(False)", step.reason)
+                continue
+            if isinstance(step, FrequencyEncode):
+                e = (f"{e}.replace_strict({dict(step.mapping)!r}, default={step.default!r}, "
+                     f"return_dtype=pl.Float64).fill_null({step.default!r})")
+            elif isinstance(step, ToNumeric):
                 e += '.cast(pl.String).str.strip_chars(" ").cast(pl.Float64, strict=False)'
             elif isinstance(step, NormalizeText):
                 e += '.str.strip_chars(" ").str.to_lowercase()'

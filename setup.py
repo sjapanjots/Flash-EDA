@@ -4,10 +4,10 @@ from setuptools import setup, find_packages
 
 setup(
     name="flasheda",
-    version="0.3.0",
+    version="0.4.0",
     description=(
-        "Fixed-time EDA for any dataset size, plus validated cleaning code "
-        "for pandas, polars, DuckDB and PySpark."
+        "Fixed-time EDA for any dataset size, plus validated cleaning, feature "
+        "and training code for pandas, polars, DuckDB and PySpark."
     ),
     long_description=Path(__file__).with_name("README.md").read_text(encoding="utf-8"),
     long_description_content_type="text/markdown",
@@ -35,9 +35,12 @@ setup(
     extras_require={
         "fast": ["duckdb>=0.10", "polars>=0.20", "pyarrow>=12"],
         "spark": ["pyspark>=3.4"],
-        "dev": ["pytest>=7", "duckdb>=0.10", "polars>=0.20", "pyarrow>=12", "build", "twine"],
+        "ml": ["scikit-learn>=1.2", "pyarrow>=12"],
+        "all": ["duckdb>=0.10", "polars>=0.20", "pyarrow>=12", "scikit-learn>=1.2"],
+        "dev": ["pytest>=7", "duckdb>=0.10", "polars>=0.20", "pyarrow>=12", "scikit-learn>=1.2",
+                "build", "twine"],
     },
-    keywords=["eda", "data-cleaning", "pandas", "polars", "duckdb", "pyspark", "code-generation"],
+    keywords=["eda", "data-cleaning", "pandas", "polars", "duckdb", "pyspark", "code-generation", "feature-engineering", "automl"],
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Science/Research",
