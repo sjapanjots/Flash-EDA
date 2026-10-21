@@ -138,3 +138,20 @@ def test_long_tails_do_not_fail():
     assert df["amount"].max() > 2 * contract["amount"].p99_max     # max would have failed
     assert fe.check(df, contract).ok
     assert not fe.check(df.assign(amount=df["amount"] * 100), contract).ok
+
+
+def test_tolerance_covers_sampling_noise():
+    """A contract learned from a 5,000-row sample must not fail the full data it came from
+    just because the sample was unlucky, and must still catch a real jump in junk values."""
+    from flasheda.contract.rules import _infer_rule
+
+    rng = np.random.default_rng(1)
+    n = 100_000
+    values = rng.lognormal(3, 0.5, n).round(2).astype(str).astype(object)
+    values[rng.random(n) < 0.03] = "N/A"
+    full = pd.Series(values)
+    real = pd.to_numeric(full, errors="coerce").isna().mean() * 100
+    rules = [_infer_rule(full.sample(5_000, random_state=t), "x", set()) for t in range(200)]
+    assert all(r.kind == "number" for r in rules)
+    assert sum(real > r.max_invalid_pct for r in rules) <= 1          # was ~3 in 200 with a fixed margin
+    assert all(r.max_invalid_pct < 6 for r in rules)                   # 10% junk would still fail
