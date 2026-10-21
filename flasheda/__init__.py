@@ -15,6 +15,7 @@ from .compare import compare
 from .engine import available_engines, choose_engine, inspect_source, sample, get_sample_size, set_sample_size, sql
 from .analyzers import overview, missing, numeric, categorical, correlation
 from .analyzers import target as target_analyzer
+from .analyzers import text as text_analyzer
 from .report import EDAReport
 
 __version__ = "0.5.0"
@@ -71,12 +72,13 @@ def analyze(
         "numeric":     lambda: numeric.analyze(sampled),
         "categorical": lambda: categorical.analyze(sampled),
         "correlation": lambda: correlation.analyze(sampled),
+        "text":        lambda: text_analyzer.analyze(sampled),
     }
     if target is not None:
         tasks["target"] = lambda: target_analyzer.analyze(sampled, target, random_state)
 
     results: dict = {}
-    with ThreadPoolExecutor(max_workers=5) as pool:
+    with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
         future_map = {pool.submit(fn): name for name, fn in tasks.items()}
         for future in as_completed(future_map):
             name = future_map[future]
@@ -98,6 +100,11 @@ def analyze(
     corr = results.get("correlation", {})
     if corr.get("numeric_strong_pairs"):
         warnings.append(f"{len(corr['numeric_strong_pairs'])} strongly correlated pair(s) found")
+
+    txt = results.get("text", {})
+    for col in txt.get("personal_data_columns", []):
+        kinds = ", ".join(f"{k} {v}%" for k, v in txt["columns"][col]["personal_data"].items())
+        warnings.append(f"Possible personal data in {col!r}: {kinds} of non-empty values")
 
     tgt = results.get("target", {})
     if "error" in tgt:
@@ -121,6 +128,7 @@ def analyze(
         numeric=results.get("numeric", {}),
         categorical=results.get("categorical", {}),
         correlation=results.get("correlation", {}),
+        text=txt,
         sample_size=len(sampled),
         elapsed_seconds=elapsed,
         original_shape=original_shape,

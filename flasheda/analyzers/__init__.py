@@ -1,3 +1,3 @@
-from . import overview, missing, numeric, categorical, correlation, target
+from . import overview, missing, numeric, categorical, correlation, target, text
 
-__all__ = ["overview", "missing", "numeric", "categorical", "correlation", "target"]
+__all__ = ["overview", "missing", "numeric", "categorical", "correlation", "target", "text"]
