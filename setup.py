@@ -37,7 +37,7 @@ setup(
         "spark": ["pyspark>=3.4"],
         "ml": ["scikit-learn>=1.2", "pyarrow>=12"],
         "all": ["duckdb>=0.10", "polars>=0.20", "pyarrow>=12", "scikit-learn>=1.2"],
-        "dev": ["pytest>=7", "duckdb>=0.10", "polars>=0.20", "pyarrow>=12", "scikit-learn>=1.2",
+        "dev": ["pytest>=7", "duckdb>=0.10", "polars>=0.20", "pyarrow>=12", "scikit-learn>=1.2", "pandera",
                 "build", "twine"],
     },
     keywords=["eda", "data-cleaning", "pandas", "polars", "duckdb", "pyspark", "code-generation", "feature-engineering", "automl"],
