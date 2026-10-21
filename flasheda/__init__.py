@@ -44,7 +44,7 @@ def analyze(
     *,
     show: bool = False,
     random_state: int = 42,
-    save_pdf: bool = True,
+    save_pdf: bool = False,
     pdf_path: str = "flasheda_report.pdf",
     engine: Optional[str] = None,
     target: Optional[str] = None,
@@ -52,6 +52,9 @@ def analyze(
     """
     Analyse a fixed-size sample of `source`: a DataFrame, a CSV/TSV or Parquet
     path, or a database table/query from flasheda.sql().
+
+    Nothing is written to disk unless you ask: pass save_pdf=True (to
+    pdf_path) or call report.save_pdf() / report.save_html().
 
     `target` names the column you want to predict; it adds task detection,
     class balance, per-feature predictive power and leakage checks.
