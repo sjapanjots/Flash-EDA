@@ -357,6 +357,11 @@ class EDAReport:
         from .contract import infer_contract
         return infer_contract(self, allow_extra_columns)
 
+    def to_notebook(self, path: str = "flasheda_analysis.ipynb", **options):
+        """Write a runnable Jupyter notebook (see flasheda.export.to_notebook)."""
+        from .export import to_notebook
+        return to_notebook(self, path, **options)
+
     def train(self, engine: Optional[str] = None, **options):
         """Compare models on the sample and generate prep + training scripts
         (see flasheda.modeling.train_from_report)."""
