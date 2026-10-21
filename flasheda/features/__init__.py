@@ -5,6 +5,8 @@ Plans model-ready features on top of the cleaning plan:
 
   dates       ISO date/timestamp text (or datetime columns) → year, month,
               day, day of week (and hour when times vary); original dropped
+  text        free-text columns → length and word count; columns with
+              personal data (emails, phones, …) are dropped
   categories  ≤ 15 values → one-hot; ≤ 500 values → frequency encoding;
               more → dropped as free text
   ratios      a / b for the most predictive numeric pairs, kept only when the
@@ -29,6 +31,7 @@ from ..analyzers.target import predictive_power
 from ..clean import detectors
 from ..codegen.steps import (
     DATE_PARTS, ClipOutliers, DateParts, DropColumns, FrequencyEncode, Log1p, OneHot, Plan, Ratio,
+    TextStats,
 )
 
 if TYPE_CHECKING:
@@ -97,10 +100,26 @@ def plan_features(
             drop[col] = "replaced by date parts"
             date_cols.append(col)
 
+    # ── text ────────────────────────────────────────────────────────────────
+    text_info = report.text or {}
+    handled = set(date_cols)
+    if encode:
+        for col in text_info.get("personal_data_columns", []):
+            if col in features and col not in handled:
+                kinds = ", ".join(text_info["columns"][col]["personal_data"])
+                drop[col] = f"personal data ({kinds})"
+                handled.add(col)
+        for col in text_info.get("free_text_columns", []):
+            if col in features and col not in handled and detectors.is_text(df[col]):
+                plan.steps.append(TextStats(col, fresh(f"{col}_length"), fresh(f"{col}_words"),
+                                            reason="free text: models can use its length and word count"))
+                drop[col] = "free text, replaced by length and word count"
+                handled.add(col)
+
     # ── categories ──────────────────────────────────────────────────────────
     if encode:
         for col in features:
-            if col in date_cols or not detectors.is_text(df[col]):
+            if col in handled or not detectors.is_text(df[col]):
                 continue
             counts = df[col].value_counts()
             n_unique = len(counts)

@@ -5,7 +5,7 @@ from typing import Optional
 from ..steps import (
     ClipOutliers, DateParts, DropColumns, DropDuplicates, DropNullRows, FillNull,
     FrequencyEncode, GroupRare, Log1p, MissingIndicator, NormalizeText, OneHot, Plan, Ratio,
-    ToNumeric,
+    TextStats, ToNumeric,
 )
 from .base import Writer, source_format
 
@@ -59,6 +59,10 @@ class PySparkWriter(Writer):
                     value = f"{spark[part]}({ts})"
                 lines.append(f'df = df.withColumn({name!r}, ({value}).cast("double"))')
             return "\n".join(lines)
+        if isinstance(step, TextStats):
+            return (f'df = df.withColumn({step.length_name!r}, F.length({c}).cast("double"))\n'
+                    f"df = df.withColumn({step.words_name!r}, "
+                    f'F.size(F.regexp_extract_all({c}, F.lit(r"\\S+"), F.lit(0))).cast("double"))')
         if isinstance(step, OneHot):
             return "\n".join(
                 f"df = df.withColumn({name!r}, F.coalesce({c} == {value!r}, F.lit(False)))"

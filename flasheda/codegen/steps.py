@@ -155,16 +155,26 @@ class FrequencyEncode:
     reason: str = ""
 
 
+@dataclass(frozen=True)
+class TextStats:
+    """Add `<column>_length` (characters) and `<column>_words` (runs of non-spaces)."""
+
+    column: str
+    length_name: str
+    words_name: str
+    reason: str = ""
+
+
 ROW_STEPS = (DropColumns, DropDuplicates, DropNullRows)
 COLUMN_STEPS = (
     ToNumeric, NormalizeText, GroupRare, MissingIndicator, FillNull, ClipOutliers, Log1p,
-    DateParts, Ratio, OneHot, FrequencyEncode,
+    DateParts, Ratio, OneHot, FrequencyEncode, TextStats,
 )
 
 Step = Union[
     DropColumns, DropDuplicates, DropNullRows,
     ToNumeric, NormalizeText, GroupRare, MissingIndicator, FillNull, ClipOutliers, Log1p,
-    DateParts, Ratio, OneHot, FrequencyEncode,
+    DateParts, Ratio, OneHot, FrequencyEncode, TextStats,
 ]
 
 
@@ -183,6 +193,8 @@ def outputs(step) -> tuple:
         return (step.name,)
     if isinstance(step, (DateParts, OneHot)):
         return step.names
+    if isinstance(step, TextStats):
+        return (step.length_name, step.words_name)
     return ()
 
 
@@ -268,6 +280,10 @@ class Plan:
                 s = out[step.column]
                 for value, name in zip(step.values, step.names):
                     out[name] = s.eq(value).fillna(False).astype(bool)
+            elif isinstance(step, TextStats):
+                s = out[step.column]
+                out[step.length_name] = s.str.len().astype("float64")
+                out[step.words_name] = s.str.count(r"\S+").astype("float64")
             elif isinstance(step, FrequencyEncode):
                 mapping = dict(step.mapping)
                 out[step.column] = out[step.column].map(mapping).astype("float64").fillna(step.default)
@@ -301,4 +317,6 @@ def _label(step: Step) -> str:
         return f"add {step.name!r} = {step.numerator!r} / {step.denominator!r}"
     if isinstance(step, OneHot):
         return f"one-hot encode {step.column!r} ({len(step.values)} columns)"
+    if isinstance(step, TextStats):
+        return f"add length and word count of {step.column!r}"
     return f"frequency-encode {step.column!r}"

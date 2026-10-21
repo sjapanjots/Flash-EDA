@@ -41,6 +41,19 @@ def looks_like_datetime(s: pd.Series, min_ratio: float = 0.95) -> bool:
     return bool(parsed.notna().mean() >= min_ratio)
 
 
+FREE_TEXT_MIN_WORDS = 3.0
+FREE_TEXT_MIN_CHARS = 30.0
+
+
+def is_free_text(s: pd.Series) -> bool:
+    """Text that reads like sentences: ≥ 3 words or ≥ 30 characters on average."""
+    if not is_text(s):
+        return False
+    values = s.dropna().astype(str).head(2_000)
+    return bool(values.str.count(r"\S+").mean() >= FREE_TEXT_MIN_WORDS
+                or values.str.len().mean() >= FREE_TEXT_MIN_CHARS)
+
+
 def numeric_text_ratio(s: pd.Series) -> Optional[float]:
     """Share of non-empty text values that parse as numbers, or None if it's not text."""
     if not is_text(s):

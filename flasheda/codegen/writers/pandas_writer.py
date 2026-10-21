@@ -5,7 +5,7 @@ from typing import Optional
 from ..steps import (
     ClipOutliers, DateParts, DropColumns, DropDuplicates, DropNullRows, FillNull,
     FrequencyEncode, GroupRare, Log1p, MissingIndicator, NormalizeText, OneHot, Plan, Ratio,
-    ToNumeric,
+    TextStats, ToNumeric,
 )
 from .base import Writer, source_format
 
@@ -69,6 +69,9 @@ class PandasWriter(Writer):
             return "\n".join(
                 f"df[{name!r}] = {c}.eq({value!r}).fillna(False).astype(bool)"
                 for value, name in zip(step.values, step.names))
+        if isinstance(step, TextStats):
+            return (f'df[{step.length_name!r}] = {c}.str.len().astype("float64")\n'
+                    f'df[{step.words_name!r}] = {c}.str.count(r"\\S+").astype("float64")')
         if isinstance(step, FrequencyEncode):
             return f'{c} = {c}.map({dict(step.mapping)!r}).astype("float64").fillna({step.default!r})'
         raise TypeError(f"Unsupported step {step!r}")

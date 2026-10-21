@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 from ..steps import (
     ClipOutliers, DateParts, DropColumns, DropDuplicates, DropNullRows, FillNull,
     FrequencyEncode, GroupRare, Log1p, MissingIndicator, NormalizeText, OneHot, Plan, Ratio,
-    ToNumeric,
+    TextStats, ToNumeric,
 )
 from .base import Writer, source_format
 
@@ -69,6 +69,10 @@ class PolarsWriter(Writer):
                     fn = {"year": "year", "month": "month", "day": "day",
                           "dayofweek": "weekday", "hour": "hour"}[part]
                     add(name, f"{ts}.dt.{fn}().cast(pl.Float64)", step.reason)
+                continue
+            if isinstance(step, TextStats):
+                add(step.length_name, f"{e}.str.len_chars().cast(pl.Float64)", step.reason)
+                add(step.words_name, f'{e}.str.count_matches(r"\\S+").cast(pl.Float64)', step.reason)
                 continue
             if isinstance(step, OneHot):
                 for value, name in zip(step.values, step.names):
