@@ -19,6 +19,9 @@ series:
               seasonal (a random walk doesn't)
   profile     average by weekday (daily data) or hour of day (hourly data)
   anomalies   periods more than 4 robust standard deviations from the median
+
+ts.forecast() backtests simple baselines and writes a forecast script
+(see flasheda.timeseries.forecast).
 """
 
 from __future__ import annotations
@@ -73,6 +76,11 @@ class TimeSeriesReport:
         """Lag of the strongest seasonality, if any."""
         found = [s for s in self.seasonality if s["seasonal"]]
         return max(found, key=lambda s: s["strength"])["lag"] if found else None
+
+    def forecast(self, horizon: Optional[int] = None, methods: Optional[List[str]] = None):
+        """Backtest baseline methods and forecast the next `horizon` periods."""
+        from .forecast import forecast
+        return forecast(self, horizon, methods)
 
     def to_dict(self) -> Dict[str, Any]:
         return {k: (str(v) if isinstance(v, pd.Timestamp) else v)
