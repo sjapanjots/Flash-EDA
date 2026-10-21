@@ -10,7 +10,7 @@ test), measured on fixed-size samples so it takes seconds at any size:
   schema     columns added / removed, type changes
   per column PSI (population stability index) on reference quantile bins or
              categories; KS test for numbers; new categories; null-rate change
-  dates      reported as a range shift (dates always move), not as drift
+  dates, IDs reported as a range shift (they always move), not as drift
   severity   PSI < 0.1 stable · 0.1–0.25 moderate · ≥ 0.25 major (the usual
              credit-risk thresholds); a null rate moving ≥ 10 points is at
              least moderate
@@ -144,6 +144,12 @@ def _column_drift(col: str, ref: pd.Series, cur: pd.Series, kind: str) -> Dict[s
         value = 0.0
         out["detail"] = (f"{r.min():%Y-%m-%d}…{r.max():%Y-%m-%d} → {c.min():%Y-%m-%d}…{c.max():%Y-%m-%d}"
                          if len(r) and len(c) else "")
+    elif kind == "integer" and _is_id_like(ref):
+        # New IDs always differ from old ones: report the range, not drift.
+        r, c = ref.dropna(), cur.dropna()
+        value = 0.0
+        out["detail"] = (f"ID-like: {r.min():,}…{r.max():,} → {c.min():,}…{c.max():,}"
+                         if len(r) and len(c) else "ID-like")
     elif kind in ("number", "integer"):
         r = pd.to_numeric(ref, errors="coerce")
         c = pd.to_numeric(cur, errors="coerce")
@@ -166,6 +172,11 @@ def _column_drift(col: str, ref: pd.Series, cur: pd.Series, kind: str) -> Dict[s
         severity = "moderate"
     out["severity"] = severity
     return out
+
+
+def _is_id_like(s: pd.Series) -> bool:
+    values = s.dropna()
+    return len(values) > 0 and values.nunique() / len(values) > 0.95
 
 
 def _numeric_psi(ref: pd.Series, cur: pd.Series) -> float:
@@ -208,6 +219,6 @@ def _categorical_psi(ref: pd.Series, cur: pd.Series):
         top.append("<null>")
     e = [ref_counts.get(v, 0.0) for v in top] + [1 - ref_counts.reindex(top).fillna(0).sum()]
     a = [cur_counts.get(v, 0.0) for v in top] + [1 - cur_counts.reindex(top).fillna(0).sum()]
-    seen = set(ref_counts.index)
+    seen = set(ref_counts.index) | {"<null>"}      # nulls are reported as null %, not new values
     new = cur_counts[[v not in seen for v in cur_counts.index]]
     return psi(e, a), float(new.sum()), [str(v) for v in new.index[:10]]
