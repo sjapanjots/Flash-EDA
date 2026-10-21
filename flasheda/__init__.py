@@ -11,6 +11,7 @@ from . import codegen, engine
 from .clean import clean
 from .modeling import train
 from .contract import check
+from .compare import compare
 from .engine import available_engines, choose_engine, inspect_source, sample, get_sample_size, set_sample_size
 from .analyzers import overview, missing, numeric, categorical, correlation
 from .analyzers import target as target_analyzer
@@ -22,6 +23,7 @@ __all__ = [
     "available_engines",
     "check",
     "clean",
+    "compare",
     "codegen",
     "engine",
     "get_sample_size",
