@@ -10,9 +10,14 @@ All notable changes to FlashEDA. Versions follow [Semantic Versioning](https://s
 - `flasheda.timeseries(source, time=..., value=...)`: aggregates the *full* data per hour/day/week (one DuckDB `GROUP BY` for files) and reports gaps, trend, seasonality, weekday/hour profile and anomalies
 - `ts.forecast()`: backtests naive, seasonal naive, moving average, drift and trend + season baselines; `forecast.script()` writes a standalone forecast script that reproduces the result
 - `report.to_notebook(path, train=, time=, contract=)`: one runnable Jupyter notebook with the analysis, cleaning/feature code, training, forecast and contract check
+- Point-biserial correlation for numeric–boolean pairs (promised by the docs, never computed); strong pairs are reported with a warning
+
+### Changed
+- `analyze()` no longer writes `flasheda_report.pdf` by default; pass `save_pdf=True` or call `report.save_pdf()`
 
 ### Fixed
 - Free text was flagged as a likely ID column (every sentence is unique) and dropped before it could be used
+- The HTML report's original tables and warning banners didn't escape column names and values, so text like `<script>` became markup
 
 ## [0.5.0] — Phase 4: data contracts, drift and databases
 
