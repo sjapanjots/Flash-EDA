@@ -529,7 +529,7 @@ def _render_html(r: EDAReport) -> str:
         out_badge  = '<span class="badge warn">outliers</span>' if s.get("outlier_pct", 0) > 5 else ""
         num_rows_html += f"""
         <tr>
-          <td><strong>{col}</strong></td>
+          <td><strong>{_esc(col)}</strong></td>
           <td>{s.get('mean','')}</td><td>{s.get('std','')}</td>
           <td>{s.get('min','')}</td><td>{s.get('median','')}</td>
           <td>{s.get('max','')}</td>
@@ -552,12 +552,12 @@ def _render_html(r: EDAReport) -> str:
         top_str = " · ".join(f"{t['value']} ({t['pct']}%)" for t in top)
         cat_rows_html += f"""
         <tr>
-          <td><strong>{col}</strong></td>
+          <td><strong>{_esc(col)}</strong></td>
           <td>{s.get('unique_count','')}</td>
           <td>{s.get('cardinality_ratio','')}</td>
-          <td>{str(s.get('mode',''))[:40]}</td>
+          <td>{_esc(str(s.get('mode',''))[:40])}</td>
           <td>{s.get('mode_pct','')}%</td>
-          <td class="muted">{top_str[:80]}</td>
+          <td class="muted">{_esc(top_str[:80])}</td>
           <td>{flag}</td>
         </tr>"""
 
@@ -569,7 +569,7 @@ def _render_html(r: EDAReport) -> str:
         bar_w = min(100, int(info.get("null_pct", 0)))
         miss_rows_html += f"""
         <tr>
-          <td>{col}</td>
+          <td>{_esc(col)}</td>
           <td>{info.get('null_count', 0)}</td>
           <td>
             <div class="bar-bg">
@@ -582,8 +582,8 @@ def _render_html(r: EDAReport) -> str:
 
     corr_html = ""
     for p in strong_corr[:15]:
-        corr_html += (f"<tr><td>{p['col_a']}</td>"
-                      f"<td>{p['col_b']}</td>"
+        corr_html += (f"<tr><td>{_esc(p['col_a'])}</td>"
+                      f"<td>{_esc(p['col_b'])}</td>"
                       f"<td>{p['pearson_r']}</td></tr>")
 
     text_html = ""
@@ -636,7 +636,7 @@ def _render_html(r: EDAReport) -> str:
   </div>"""
 
     warn_html = "".join(
-        f'<div class="warn-banner">⚠  {w}</div>'
+        f'<div class="warn-banner">⚠  {_esc(w)}</div>'
         for w in r.warnings
     )
 
