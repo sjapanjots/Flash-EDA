@@ -340,6 +340,11 @@ class EDAReport:
                 raise RuntimeError(f"Generated code failed validation: {result}")
         return code
 
+    def contract(self, allow_extra_columns: bool = True):
+        """Data contract learned from the sample (see flasheda.contract)."""
+        from .contract import infer_contract
+        return infer_contract(self, allow_extra_columns)
+
     def train(self, engine: Optional[str] = None, **options):
         """Compare models on the sample and generate prep + training scripts
         (see flasheda.modeling.train_from_report)."""
