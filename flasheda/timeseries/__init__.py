@@ -15,7 +15,8 @@ series:
   gaps        periods with no rows, and the longest run of them
   trend       linear fit: rising / falling / flat, % change per year
   seasonality autocorrelation at natural lags (24h, 7d, 52w, …) after
-              removing the trend; ≥ 0.3 counts as seasonal
+              removing a moving average one season long; ≥ 0.3 counts as
+              seasonal (a random walk doesn't)
   profile     average by weekday (daily data) or hour of day (hourly data)
   anomalies   periods more than 4 robust standard deviations from the median
 """
@@ -257,14 +258,15 @@ def _trend(y: pd.Series, freq: str) -> Dict[str, Any]:
 
 
 def _seasonality(y: pd.Series, freq: str) -> List[Dict[str, Any]]:
-    x = y.to_numpy()
-    if len(x) >= 3:
-        t = np.arange(len(x))
-        x = x - np.polyval(np.polyfit(t, x, 1), t)      # remove the trend first
     out = []
     for lag, name in SEASONAL_LAGS[freq]:
-        if len(x) < 2 * lag + 1:
+        if len(y) < 3 * lag:
             continue
+        # Remove the local level with a centred moving average one season long
+        # (classical decomposition). A plain linear detrend isn't enough: a
+        # random walk is autocorrelated at every lag and would look seasonal.
+        level = y.rolling(lag, center=True, min_periods=lag).mean()
+        x = (y - level).dropna().to_numpy()
         a, b = x[:-lag], x[lag:]
         strength = float(np.corrcoef(a, b)[0, 1]) if a.std() and b.std() else 0.0
         out.append({"name": name, "lag": lag, "strength": round(strength, 3),

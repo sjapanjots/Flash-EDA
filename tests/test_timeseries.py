@@ -76,6 +76,13 @@ def test_falling_and_flat():
     assert flat.trend["direction"] == "flat" and flat.season_length is None
 
 
+def test_random_walk_is_not_seasonal():
+    rng = np.random.default_rng(3)
+    days = pd.date_range("2024-01-01", periods=400, freq="D")
+    df = pd.DataFrame({"day": days, "price": 100 + rng.normal(0, 1, 400).cumsum()})
+    assert fe.timeseries(df, time="day", value="price", agg="mean").season_length is None
+
+
 def test_auto_frequency():
     hourly = make_orders(start="2024-01-01", end="2024-01-20")
     assert fe.timeseries(hourly, time="created_at").freq == "hour"
