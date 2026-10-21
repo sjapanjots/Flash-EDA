@@ -2,7 +2,7 @@
 
 All notable changes to FlashEDA. Versions follow [Semantic Versioning](https://semver.org/).
 
-## [0.6.0] — Phase 5: text, time series and notebooks
+## [0.6.0] — Text, time series and notebooks
 
 ### Added
 - **Text profiling** in `analyze()`: personal data (emails, phone numbers, URLs, IP addresses, Luhn-checked card numbers) as a share of each text column's non-empty values, with a warning; for free-text columns, length, word, empty, duplicate and all-caps statistics and top words
@@ -19,7 +19,7 @@ All notable changes to FlashEDA. Versions follow [Semantic Versioning](https://s
 - Free text was flagged as a likely ID column (every sentence is unique) and dropped before it could be used
 - The HTML report's original tables and warning banners didn't escape column names and values, so text like `<script>` became markup
 
-## [0.5.0] — Phase 4: data contracts, drift and databases
+## [0.5.0] — Data contracts, drift and databases
 
 ### Added
 - **Data contracts**: `report.contract()` learns per-column rules from the sample with tolerances (type, missing %, percentile range, no negatives, allowed values, uniqueness); `flasheda.check(source, contract)` checks the *full* data (one DuckDB pass for files, pandas for DataFrames); contracts save to JSON
@@ -29,7 +29,7 @@ All notable changes to FlashEDA. Versions follow [Semantic Versioning](https://s
 - `flasheda.sql(url, table=... | query=...)`: database tables and queries as sources for analyze, compare, contracts and pandas cleaning code; sampling runs in the database; passwords are masked and generated scripts read `$DATABASE_URL`; `.to_parquet()` streams a table to a file
 - Optional install: `flasheda[sql]`
 
-## [0.4.0] — Phase 3: features and models
+## [0.4.0] — Features and models
 
 ### Added
 - `report.plan(features=True)` / `codegen(..., features=True)` / `clean(..., features=True)`: model-ready features, generated for all four engines and checked on the sample
@@ -44,7 +44,7 @@ All notable changes to FlashEDA. Versions follow [Semantic Versioning](https://s
 ### Fixed
 - Rare-value grouping kept at most 25 values, so common values were lumped into `other` too
 
-## [0.3.0] — Phase 2: target analysis and target-aware cleaning
+## [0.3.0] — Target analysis and target-aware cleaning
 
 ### Added
 - `analyze(source, target="col")`: target analysis
@@ -68,7 +68,7 @@ All notable changes to FlashEDA. Versions follow [Semantic Versioning](https://s
 ### Changed
 - Requires Python ≥ 3.9 and pandas ≥ 2.0
 
-## [0.2.0] — Phase 1: size-aware engine and code generation
+## [0.2.0] — Size-aware engine and code generation
 
 ### Added
 - `flasheda.engine`: reads the true row count without loading the data (Parquet metadata, DuckDB count for CSV); fast sampling with a DuckDB reservoir or vectorised chunks; picks pandas / polars / DuckDB / PySpark by size
