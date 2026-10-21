@@ -70,6 +70,19 @@ def test_dates_and_ids_are_not_noise(jan, feb):
     assert "new_values" not in drift["customer_id"]
 
 
+def test_new_ids_are_not_drift(jan, feb):
+    later = feb.assign(customer_id=feb["customer_id"] + 1_000_000)
+    c = fe.compare(jan, later)["customer_id"]
+    assert c["severity"] == "stable" and c["detail"].startswith("ID-like")
+
+
+def test_nulls_are_not_new_values(jan, feb):
+    cur = feb.copy()
+    cur.loc[: len(cur) // 5, "city"] = None
+    c = fe.compare(jan, cur)["city"]
+    assert c["new_values"] == [] and c["null_pct_current"] > 15
+
+
 def test_show_and_dict(jan, feb, capsys):
     drift = fe.compare(jan, feb)
     drift.show()
