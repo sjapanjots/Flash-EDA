@@ -13,7 +13,7 @@ RUNNABLE = ["pandas", "polars", "duckdb"]
 
 
 def make_churn(n: int = 8_000, seed: int = 3) -> pd.DataFrame:
-    """Churn data with every problem Phase 2 handles."""
+    """Churn data with every problem the target-aware cleaning handles."""
     rng = np.random.default_rng(seed)
     churn = rng.random(n) < 0.12
     income = rng.lognormal(10, 0.8, n)
