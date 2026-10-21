@@ -109,6 +109,17 @@ class Contract:
     def load(cls, path: Union[str, Path]) -> "Contract":
         return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
 
+    # ── code export ─────────────────────────────────────────────────────────
+    def script(self, source: Optional[str] = None) -> str:
+        """Standalone DuckDB check script (exits 1 on failure); see contract.script."""
+        from .script import render_check_script
+        return render_check_script(self, source)
+
+    def to_pandera(self) -> str:
+        """pandera schema code with the same rules."""
+        from .script import render_pandera
+        return render_pandera(self)
+
     # ── checking ────────────────────────────────────────────────────────────
     def check(self, source: Any):
         """Check the *full* `source` (DataFrame or CSV/Parquet path) against this contract."""

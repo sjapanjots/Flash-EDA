@@ -9,10 +9,12 @@ full-size work.
 from .backends import ENGINES, available_engines, choose_engine, is_available
 from .sampler import get_sample_size, sample, set_sample_size
 from .source import SourceInfo, inspect_source
+from .sql import SqlSource, sql
 
 __all__ = [
     "ENGINES",
     "SourceInfo",
+    "SqlSource",
     "available_engines",
     "choose_engine",
     "get_sample_size",
@@ -20,4 +22,5 @@ __all__ = [
     "is_available",
     "sample",
     "set_sample_size",
+    "sql",
 ]

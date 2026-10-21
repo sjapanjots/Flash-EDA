@@ -19,6 +19,7 @@ class EDAReport:
     warnings: list[str] = field(default_factory=list)
     target: Dict[str, Any] = field(default_factory=dict)
     source: Optional[str] = None
+    sql_source: Any = field(default=None, repr=False)
     recommended_engine: str = "pandas"
     sample: Optional[pd.DataFrame] = field(default=None, repr=False, compare=False)
 
@@ -331,6 +332,7 @@ class EDAReport:
             self.plan(features=features, **plan_options),
             engine or self.recommended_engine,
             source=self.source,
+            sql=self.sql_source,
             output=output,
             sample=self.sample,
         )
@@ -367,7 +369,7 @@ class EDAReport:
             "original_shape":   list(self.original_shape),
             "warnings":         self.warnings,
             "target":           self.target,
-            "source":           self.source,
+            "source":           self.source or (self.sql_source.display if self.sql_source else None),
             "recommended_engine": self.recommended_engine,
         }
 

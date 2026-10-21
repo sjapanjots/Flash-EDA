@@ -58,10 +58,12 @@ def generate(
     output: str = "cleaned.parquet",
     sample: Optional[pd.DataFrame] = None,
     columns: Optional[List[str]] = None,
+    sql: Any = None,
 ) -> GeneratedCode:
+    """`sql` is a flasheda.sql() source to read from instead of a file."""
     if columns is None and sample is not None:
         columns = [str(c) for c in sample.columns]
-    code = get_writer(engine).render(plan, source, output, columns)
+    code = get_writer(engine).render(plan, source, output, columns, sql=sql)
     return GeneratedCode(engine, code, plan, sample)
 
 

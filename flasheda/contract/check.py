@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from ..engine.backends import is_available
-from ..engine.source import CSV_EXTS, DUCKDB_CSV_TYPES, PARQUET_EXTS, _is_polars_frame, csv_sep
+from ..engine.source import CSV_EXTS, DUCKDB_CSV_TYPES, PARQUET_EXTS, _is_polars_frame, _is_sql, csv_sep
 from .rules import ColumnRule, Contract, invalid_share
 
 
@@ -79,6 +79,10 @@ def check(source: Any, contract: Contract) -> CheckResult:
         stats, columns, rows = stats_pandas(source, contract)
     elif _is_polars_frame(source):
         stats, columns, rows = stats_pandas(source.to_pandas(), contract)
+    elif _is_sql(source):
+        # Read in full with pandas; for very large tables export first with
+        # source.to_parquet(path) and check the Parquet file (one DuckDB pass).
+        stats, columns, rows = stats_pandas(source.read(f"SELECT * FROM {source.from_sql()}"), contract)
     else:
         raise TypeError(f"source must be a DataFrame or file path, got {type(source)}")
     return evaluate(contract, stats, columns, rows)

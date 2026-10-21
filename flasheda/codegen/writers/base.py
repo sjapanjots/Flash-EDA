@@ -14,7 +14,7 @@ from __future__ import annotations
 import textwrap
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from ..steps import Plan, Step
 
@@ -23,6 +23,8 @@ class Writer(ABC):
     engine: str = ""
     install_hint: str = ""
     columns: Optional[List[str]] = None
+    sql: Any = None
+    reads_sql = False           # writers that can load from a database URL
 
     def render(
         self,
@@ -30,9 +32,17 @@ class Writer(ABC):
         source: Optional[str],
         output: str,
         columns: Optional[List[str]] = None,
+        sql: Any = None,
     ) -> str:
-        """`columns` are the source's column names, when known."""
+        """`columns` are the source's column names, when known; `sql` a database source."""
         self.columns = list(columns) if columns is not None else None
+        self.sql = sql
+        if sql is not None and not self.reads_sql:
+            raise ValueError(
+                f"The {self.engine} writer can't read from a database directly. Use engine='pandas', "
+                "or export first: flasheda.sql(...).to_parquet('data.parquet'), then analyze that file.")
+        if sql is not None:
+            source = sql.display
         parts = [
             self._docstring(plan, source),
             self.imports(),
