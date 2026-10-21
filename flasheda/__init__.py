@@ -17,7 +17,7 @@ from .analyzers import overview, missing, numeric, categorical, correlation
 from .analyzers import target as target_analyzer
 from .report import EDAReport
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 __all__ = [
     "analyze",
     "available_engines",

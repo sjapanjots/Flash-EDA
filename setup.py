@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="flasheda",
-    version="0.4.0",
+    version="0.5.0",
     description=(
         "Fixed-time EDA for any dataset size, plus validated cleaning, feature "
         "and training code for pandas, polars, DuckDB and PySpark."
@@ -37,11 +37,11 @@ setup(
         "spark": ["pyspark>=3.4"],
         "ml": ["scikit-learn>=1.2", "pyarrow>=12"],
         "sql": ["sqlalchemy>=1.4", "pyarrow>=12"],
-        "all": ["duckdb>=0.10", "polars>=0.20", "pyarrow>=12", "scikit-learn>=1.2"],
+        "all": ["duckdb>=0.10", "polars>=0.20", "pyarrow>=12", "scikit-learn>=1.2", "sqlalchemy>=1.4"],
         "dev": ["pytest>=7", "duckdb>=0.10", "polars>=0.20", "pyarrow>=12", "scikit-learn>=1.2", "pandera", "sqlalchemy>=1.4",
                 "build", "twine"],
     },
-    keywords=["eda", "data-cleaning", "pandas", "polars", "duckdb", "pyspark", "code-generation", "feature-engineering", "automl"],
+    keywords=["eda", "data-cleaning", "pandas", "polars", "duckdb", "pyspark", "code-generation", "feature-engineering", "automl", "data-quality", "data-drift"],
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Science/Research",

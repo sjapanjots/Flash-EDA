@@ -2,6 +2,16 @@
 
 All notable changes to FlashEDA. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] — Phase 4: data contracts, drift and databases
+
+### Added
+- **Data contracts**: `report.contract()` learns per-column rules from the sample with tolerances (type, missing %, percentile range, no negatives, allowed values, uniqueness); `flasheda.check(source, contract)` checks the *full* data (one DuckDB pass for files, pandas for DataFrames); contracts save to JSON
+- `contract.script()`: a standalone DuckDB check script that exits with code 1 on failure, for pipelines and CI
+- `contract.to_pandera()`: the same rules as a pandera schema
+- `flasheda.compare(reference, current)`: added/removed columns, type changes, and per-column drift (PSI, KS test, median shift, new categories, null-rate change); dates and IDs are reported as range shifts
+- `flasheda.sql(url, table=... | query=...)`: database tables and queries as sources for analyze, compare, contracts and pandas cleaning code; sampling runs in the database; passwords are masked and generated scripts read `$DATABASE_URL`; `.to_parquet()` streams a table to a file
+- Optional install: `flasheda[sql]`
+
 ## [0.4.0] — Phase 3: features and models
 
 ### Added
@@ -57,6 +67,7 @@ All notable changes to FlashEDA. Versions follow [Semantic Versioning](https://s
 ## [0.1.3] and earlier
 - Fixed-sample EDA: overview, missing values, numeric and categorical summaries, correlations; console, HTML and PDF reports.
 
+[0.5.0]: https://github.com/sjapanjots/Flash-EDA/releases/tag/v0.5.0
 [0.4.0]: https://github.com/sjapanjots/Flash-EDA/releases/tag/v0.4.0
 [0.3.0]: https://github.com/sjapanjots/Flash-EDA/releases/tag/v0.3.0
 [0.2.0]: https://github.com/sjapanjots/Flash-EDA/compare/41829f5...41c1278
