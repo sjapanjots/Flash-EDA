@@ -1,3 +1,6 @@
+import os
+import sys
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -32,3 +35,17 @@ def files(tmp_path_factory, messy):
     messy.to_csv(paths["tsv"], index=False, sep="\t")
     messy.to_parquet(paths["parquet"], index=False)
     return paths
+
+
+def pytest_runtest_logreport(report):
+    """On GitHub Actions, post each failing test as an annotation, so its name
+    and error show on the run summary without opening the raw logs."""
+    if not (report.failed and os.environ.get("GITHUB_ACTIONS")):
+        return
+    crash = getattr(report.longrepr, "reprcrash", None)
+    message = crash.message if crash else str(report.longrepr)
+    path, line = (crash.path, crash.lineno) if crash else (report.location[0], (report.location[1] or 0) + 1)
+    text = f"{report.nodeid} ({report.when}): {message}"[:1500]
+    text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    sys.__stdout__.write(f"\n::error file={os.path.relpath(path)},line={line},title=Test failed::{text}\n")
+    sys.__stdout__.flush()
