@@ -38,7 +38,7 @@ def frame() -> pd.DataFrame:
     return df.assign(id=np.arange(len(df)))
 
 
-# Phase 2 steps, in the order the planner emits them: a row step in the
+# Target-aware cleaning steps, in the order the planner emits them: a row step in the
 # middle (DropDuplicates) and a flag that must see nulls created by ToNumeric.
 CLEAN_PLAN = Plan([
     DropNullRows("label", reason="target is null"),
@@ -88,7 +88,7 @@ def test_clean_steps_reference_semantics(dirty):
     assert out["price_was_missing"].sum() > 0          # includes "N/A" turned into null
 
 
-# Phase 3 feature steps. FillNull on a date part comes after DateParts in the
+# Feature steps. FillNull on a date part comes after DateParts in the
 # same run of column steps, so it must start a new segment in polars/DuckDB.
 FEATURE_PLAN = Plan([
     DateParts("when", ("year", "month", "day", "dayofweek", "hour"),

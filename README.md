@@ -144,14 +144,6 @@ Measured on synthetic messy data:
 | Generated forecast script on 5.3M rows | 0.6 s |
 | Notebook with cleaning, features, training, forecast and contract | 5 s |
 
-## Examples
-
-- [`examples/phase1_demo.py`](examples/phase1_demo.py): engine choice and code generation at 0.1M / 1M / 5M rows
-- [`examples/phase2_demo.py`](examples/phase2_demo.py): target analysis and cleaning on a 1M-row churn CSV
-- [`examples/phase3_demo.py`](examples/phase3_demo.py): features, model comparison and training on 1M rows
-- [`examples/phase4_demo.py`](examples/phase4_demo.py): contracts, check script, drift and a database on 1M rows
-- [`examples/phase5_demo.py`](examples/phase5_demo.py): text, time series, forecast and notebook on 5M rows
-
 ## Development
 
 ```bash
