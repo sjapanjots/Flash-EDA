@@ -4,7 +4,7 @@ flasheda.analyzers.correlation
 Computes:
   - Pearson correlation for numeric–numeric pairs
   - Cramér's V for categorical–categorical pairs
-  - Point-biserial for numeric–boolean pairs
+  - Point-biserial for numeric–boolean pairs (Pearson with the boolean as 0/1)
 
 Flags strongly correlated pairs (potential redundant features).
 Always operates on the fixed sample — constant time.
@@ -21,6 +21,7 @@ from itertools import combinations
 STRONG_CORR_THRESHOLD = 0.80
 MAX_COLS_FOR_HEATMAP = 20   # skip heatmap if too many cols (slow to render)
 MAX_CRAMER_LEVELS = 100     # Cramér's V is meaningless (and slow) for ID-like columns
+MAX_BOOL_COLS = 10
 
 
 def analyze(df: pd.DataFrame) -> Dict[str, Any]:
@@ -66,10 +67,20 @@ def analyze(df: pd.DataFrame) -> Dict[str, Any]:
             "matrix": [[round(float(hm_corr.loc[r, c]), 3) for c in heatmap_cols] for r in heatmap_cols],
         }
 
+    # ── Point-biserial for numeric–boolean pairs ────────────────────────────
+    biserial_pairs: List[Dict[str, Any]] = []
+    for b in [c for c in df.columns if _is_boolean(df[c])][:MAX_BOOL_COLS]:
+        flag = _as_01(df[b])
+        for a in num_cols[:MAX_COLS_FOR_HEATMAP]:
+            r = _point_biserial(df[a], flag)
+            if r is not None and abs(r) >= STRONG_CORR_THRESHOLD:
+                biserial_pairs.append({"numeric": a, "boolean": b, "point_biserial_r": round(r, 4)})
+
     return {
         "pearson_matrix": pearson_matrix,
         "numeric_strong_pairs": strong_pairs,
         "categorical_strong_pairs": cramer_pairs,
+        "numeric_boolean_strong_pairs": biserial_pairs,
         "heatmap": heatmap_data,
         "numeric_col_names": num_cols,
     }
@@ -93,3 +104,28 @@ def _cramers_v(a: pd.Series, b: pd.Series) -> float | None:
         return float(np.sqrt(phi2_corr / denom))
     except Exception:
         return None
+
+def _is_boolean(s: pd.Series) -> bool:
+    """bool dtype, or text holding only true/false."""
+    if pd.api.types.is_bool_dtype(s):
+        return True
+    values = s.dropna()
+    if not len(values) or pd.api.types.is_numeric_dtype(values):
+        return False
+    return bool(values.astype(str).str.strip().str.lower().isin(["true", "false"]).all())
+
+
+def _as_01(s: pd.Series) -> pd.Series:
+    if pd.api.types.is_bool_dtype(s):
+        return s.astype(float)
+    text = s.astype("string").str.strip().str.lower()
+    return text.map({"true": 1.0, "false": 0.0}).astype(float)
+
+
+def _point_biserial(x: pd.Series, flag: pd.Series) -> float | None:
+    """Point-biserial r: Pearson between a numeric column and a 0/1 flag."""
+    pair = pd.DataFrame({"x": pd.to_numeric(x, errors="coerce"), "b": flag}).dropna()
+    if len(pair) < 3 or pair["x"].std() == 0 or pair["b"].nunique() < 2:
+        return None
+    from scipy.stats import pointbiserialr
+    return float(pointbiserialr(pair["b"], pair["x"]).statistic)

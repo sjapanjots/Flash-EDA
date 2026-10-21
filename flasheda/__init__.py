@@ -105,6 +105,9 @@ def analyze(
     corr = results.get("correlation", {})
     if corr.get("numeric_strong_pairs"):
         warnings.append(f"{len(corr['numeric_strong_pairs'])} strongly correlated pair(s) found")
+    for p in corr.get("numeric_boolean_strong_pairs", []):
+        warnings.append(f"{p['numeric']!r} almost determines {p['boolean']!r} "
+                        f"(point-biserial r = {p['point_biserial_r']})")
 
     txt = results.get("text", {})
     for col in txt.get("personal_data_columns", []):
