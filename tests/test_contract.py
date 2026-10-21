@@ -34,8 +34,8 @@ def feb_frame(months):
 # ── learning ─────────────────────────────────────────────────────────────────
 
 def test_learned_rules(contract):
-    assert contract["customer_id"].unique and contract["customer_id"].max is None   # IDs: no range
-    assert contract["income"].kind == "number" and contract["income"].min == 0
+    assert contract["customer_id"].unique and contract["customer_id"].p99_max is None   # IDs: no range
+    assert contract["income"].kind == "number" and contract["income"].non_negative
     assert contract["price"].kind == "number"           # numbers stored as text, with "N/A"
     assert contract["refund_issued"].kind == "bool"     # "True"/"False" text in the CSV
     assert contract["signup_date"].kind == "datetime"
@@ -81,6 +81,8 @@ def _break(df: pd.DataFrame, how: str) -> pd.DataFrame:
         df.loc[: len(df) // 10, "price"] = "unknown"
     elif how == "unit change":
         df["income"] *= 100
+    elif how == "negative values":
+        df.loc[:5, "income"] = -1.0
     return df
 
 
@@ -92,7 +94,8 @@ EXPECTED_FAILURE = {
     # junk counts as unparseable, and also toward "null or unparseable"
     "junk values": {("price", "values parse as number (% invalid)"),
                     ("price", "null or unparseable %")},
-    "unit change": {("income", "maximum")},
+    "unit change": {("income", "99th percentile")},
+    "negative values": {("income", "no negative values")},
 }
 
 
@@ -125,3 +128,13 @@ def test_file_check_without_duckdb(months, contract, monkeypatch):
 def test_check_accepts_saved_contract(months, contract, tmp_path):
     path = contract.save(tmp_path / "c.json")
     assert fe.check(months / "feb.csv", str(path)).ok
+
+
+def test_long_tails_do_not_fail():
+    """The max of 300k long-tailed rows is far above anything in a 5,000-row sample."""
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({"amount": rng.lognormal(3, 1.2, 300_000)})
+    contract = fe.analyze(df, save_pdf=False).contract()
+    assert df["amount"].max() > 2 * contract["amount"].p99_max     # max would have failed
+    assert fe.check(df, contract).ok
+    assert not fe.check(df.assign(amount=df["amount"] * 100), contract).ok

@@ -9,10 +9,12 @@ half empty, impossible values) fails.
   kind        number / integer / bool / datetime / text, with a small
               allowance for values that don't parse ("N/A" in a number column)
   nulls       max null % = observed + max(1 point, 50% of observed)
-  range       plausible bounds: 1st–99th percentile widened by 10× their
-              spread, which tolerates long tails but catches unit changes
-              (×100, ×1000); non-negative columns stay non-negative; IDs
-              have no range
+  range       the 1st and 99th percentiles must stay within bounds (sample
+              percentiles widened by 3× their spread). Percentiles, not the
+              min/max: the extreme value of a million rows can't be predicted
+              from a sample, but a unit change (×100) moves the percentiles.
+              Columns never negative in the sample must have no negatives.
+              IDs have no range.
   missing     for typed columns, nulls and unparseable values are counted
               together, because readers disagree ("N/A" is null in pandas,
               text in DuckDB)
@@ -38,7 +40,7 @@ if TYPE_CHECKING:
 KINDS = ("number", "integer", "bool", "datetime", "text")
 ALLOWED_MAX_VALUES = 20
 UNEXPECTED_MAX_PCT = 1.0
-RANGE_WIDTH = 10                 # bounds sit this many 1%–99% spreads outside them
+RANGE_WIDTH = 3                  # percentile bounds sit this many 1%–99% spreads outside
 INVALID_MARGIN_PCT = 0.5
 
 
@@ -48,16 +50,19 @@ class ColumnRule:
     kind: str
     max_null_pct: float
     max_invalid_pct: float = INVALID_MARGIN_PCT
-    min: Optional[float] = None
-    max: Optional[float] = None
+    p01_min: Optional[float] = None     # lowest allowed 1st percentile
+    p99_max: Optional[float] = None     # highest allowed 99th percentile
+    non_negative: bool = False
     allowed: Optional[tuple] = None
     max_unexpected_pct: float = UNEXPECTED_MAX_PCT
     unique: bool = False
 
     def describe(self) -> str:
         parts = [self.kind, f"≤ {self.max_null_pct}% null"]
-        if self.min is not None or self.max is not None:
-            parts.append(f"in [{self.min}, {self.max}]")
+        if self.p01_min is not None or self.p99_max is not None:
+            parts.append(f"1st–99th percentile within [{self.p01_min}, {self.p99_max}]")
+        if self.non_negative:
+            parts.append("no negatives")
         if self.allowed is not None:
             parts.append(f"one of {len(self.allowed)} values (≤ {self.max_unexpected_pct}% others)")
         if self.unique:
@@ -156,9 +161,10 @@ def _infer_rule(s: pd.Series, name: str, likely_ids: set) -> ColumnRule:
         lo, hi = np.percentile(x, [1, 99])
         spread = max(hi - lo, abs(hi) * 0.1, 1e-9)
         low, high = lo - RANGE_WIDTH * spread, hi + RANGE_WIDTH * spread
-        if x.min() >= 0:
+        non_negative = bool(x.min() >= 0)
+        if non_negative:
             low = max(low, 0.0)
-        rule.update(min=_round(low), max=_round(high))
+        rule.update(p01_min=_round(low), p99_max=_round(high), non_negative=non_negative)
 
     if is_id and len(values) and values.nunique() == len(values):
         rule["unique"] = True
