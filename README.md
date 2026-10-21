@@ -7,7 +7,7 @@
 [![Tests](https://github.com/sjapanjots/Flash-EDA/actions/workflows/tests.yml/badge.svg)](https://github.com/sjapanjots/Flash-EDA/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](MIT.License)
 
-**Current version: 0.5.0** · [Changelog](CHANGELOG.md)
+**Current version: 0.6.0** · [Changelog](CHANGELOG.md)
 
 Analyse any dataset in a few seconds, then get **validated cleaning, feature and training code** that runs on the full data, in the engine that fits its size: pandas, polars, DuckDB or PySpark.
 
@@ -54,6 +54,15 @@ fe.compare("orders_jan.csv", "orders_feb.csv").show()
 # Databases work like files
 src = fe.sql("postgresql://user:pass@host/shop", table="orders")
 fe.analyze(src, target="churn")
+
+# 6. Time series: trend, seasonality, forecast
+ts = fe.timeseries("orders.parquet", time="created_at", value="amount")
+ts.show()
+fc = ts.forecast()                                 # backtested baselines
+open("forecast.py", "w").write(fc.script())        # python forecast.py → forecast.csv
+
+# 7. Everything as one runnable notebook
+report.to_notebook("orders.ipynb", train=True, time="created_at")
 ```
 
 ## What it does
@@ -71,6 +80,9 @@ fe.analyze(src, target="churn")
 | **Data contracts** | rules learned from good data; full-data checks; standalone check script for CI; pandera export |
 | **Drift** | schema changes and per-column drift (PSI, KS, new categories, null-rate change) between two datasets |
 | **Databases** | any SQLAlchemy URL; sampling runs in the database; passwords never stored |
+| **Text** | personal data (emails, phones, card numbers…) flagged; free-text stats; length/word features |
+| **Time series** | full-data aggregation per hour/day/week; gaps, trend, seasonality, anomalies; backtested forecast + script |
+| **Notebook** | analysis, cleaning, training, forecast and contract check as one runnable `.ipynb` |
 | **Validation** | generated code is run on the sample and compared with a reference result before you get it |
 
 ### Cleaning steps
@@ -99,6 +111,10 @@ type, missing %, 1st/99th percentile range (catches unit changes like ×100), no
 
 `fe.compare(old, new)` reports added/removed columns, type changes and how much each column shifted (PSI: < 0.1 stable, 0.1–0.25 moderate, ≥ 0.25 major). Dates and IDs are shown as range shifts, since they always move.
 
+### Time series and forecasting
+A random sample breaks time order, so `fe.timeseries()` first aggregates **every row** per period (one DuckDB `GROUP BY`, about 0.7 s for 5M rows), then reports gaps, trend (% per year), daily/weekly/yearly seasonality, the busiest weekday or hour, and anomalies.
+`ts.forecast()` backtests five simple baselines (naive, seasonal naive, moving average, drift, trend + season) and keeps the most accurate. These are the numbers any fancier model has to beat. `fc.script()` writes it as a standalone script.
+
 ### Engine choice
 
 | Rows | Engine |
@@ -124,6 +140,9 @@ Measured on synthetic messy data:
 | Learn a contract from 1M rows / run the check script on 1M rows | 0.8 s / 0.6–0.9 s |
 | Compare two 1M-row files | 0.6 s |
 | Analyse a 1M-row SQLite table (5,000 rows transferred) | 0.3 s |
+| Time-series profile of a 5.3M-row Parquet file | 0.7 s |
+| Generated forecast script on 5.3M rows | 0.6 s |
+| Notebook with cleaning, features, training, forecast and contract | 5 s |
 
 ## Examples
 
@@ -131,6 +150,7 @@ Measured on synthetic messy data:
 - [`examples/phase2_demo.py`](examples/phase2_demo.py): target analysis and cleaning on a 1M-row churn CSV
 - [`examples/phase3_demo.py`](examples/phase3_demo.py): features, model comparison and training on 1M rows
 - [`examples/phase4_demo.py`](examples/phase4_demo.py): contracts, check script, drift and a database on 1M rows
+- [`examples/phase5_demo.py`](examples/phase5_demo.py): text, time series, forecast and notebook on 5M rows
 
 ## Development
 

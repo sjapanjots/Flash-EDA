@@ -2,6 +2,18 @@
 
 All notable changes to FlashEDA. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] — Phase 5: text, time series and notebooks
+
+### Added
+- **Text profiling** in `analyze()`: personal data (emails, phone numbers, URLs, IP addresses, Luhn-checked card numbers) as a share of each text column's non-empty values, with a warning; for free-text columns, length, word, empty, duplicate and all-caps statistics and top words
+- **Text features**: free-text columns become `<col>_length` and `<col>_words` (all four engines); columns with personal data are dropped from model features
+- `flasheda.timeseries(source, time=..., value=...)`: aggregates the *full* data per hour/day/week (one DuckDB `GROUP BY` for files) and reports gaps, trend, seasonality, weekday/hour profile and anomalies
+- `ts.forecast()`: backtests naive, seasonal naive, moving average, drift and trend + season baselines; `forecast.script()` writes a standalone forecast script that reproduces the result
+- `report.to_notebook(path, train=, time=, contract=)`: one runnable Jupyter notebook with the analysis, cleaning/feature code, training, forecast and contract check
+
+### Fixed
+- Free text was flagged as a likely ID column (every sentence is unique) and dropped before it could be used
+
 ## [0.5.0] — Phase 4: data contracts, drift and databases
 
 ### Added
@@ -67,6 +79,7 @@ All notable changes to FlashEDA. Versions follow [Semantic Versioning](https://s
 ## [0.1.3] and earlier
 - Fixed-sample EDA: overview, missing values, numeric and categorical summaries, correlations; console, HTML and PDF reports.
 
+[0.6.0]: https://github.com/sjapanjots/Flash-EDA/releases/tag/v0.6.0
 [0.5.0]: https://github.com/sjapanjots/Flash-EDA/releases/tag/v0.5.0
 [0.4.0]: https://github.com/sjapanjots/Flash-EDA/releases/tag/v0.4.0
 [0.3.0]: https://github.com/sjapanjots/Flash-EDA/releases/tag/v0.3.0
