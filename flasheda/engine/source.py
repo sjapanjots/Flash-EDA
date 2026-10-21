@@ -7,6 +7,7 @@ without loading it into memory.
   Parquet → row count read from file metadata (no data scan)
   CSV/TSV → native DuckDB count when available, otherwise a chunked count
   DataFrame (pandas or polars) → shape directly
+  Database (flasheda.sql) → count(*) and column names run in the database
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ class SourceInfo:
     columns: List[str] = field(default_factory=list)
     path: Optional[Path] = None
     sep: str = ","
+    sql: Any = None                 # SqlSource for database tables/queries
 
     @property
     def is_file(self) -> bool:
@@ -46,6 +48,8 @@ class SourceInfo:
         return (self.n_rows if self.n_rows is not None else -1, self.n_cols)
 
     def describe(self) -> str:
+        if self.sql is not None:
+            return self.sql.display
         return str(self.path) if self.path else f"<in-memory {self.kind} DataFrame>"
 
 
@@ -55,6 +59,10 @@ def inspect_source(source: Any) -> SourceInfo:
 
     if _is_polars_frame(source):
         return SourceInfo("polars", source.height, source.width, list(source.columns))
+
+    if _is_sql(source):
+        cols = source.columns()
+        return SourceInfo("sql", source.count(), len(cols), cols, sql=source)
 
     if isinstance(source, (str, Path)):
         path = Path(source)
@@ -104,6 +112,11 @@ def _inspect_csv(path: Path) -> SourceInfo:
         n = sum(len(chunk) for chunk in pd.read_csv(path, sep=sep, usecols=[0], chunksize=500_000))
 
     return SourceInfo("csv", int(n), len(cols), cols, path, sep)
+
+
+def _is_sql(obj: Any) -> bool:
+    from .sql import SqlSource
+    return isinstance(obj, SqlSource)
 
 
 def _is_polars_frame(obj: Any) -> bool:

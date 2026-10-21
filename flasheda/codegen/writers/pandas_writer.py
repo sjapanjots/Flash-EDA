@@ -13,6 +13,7 @@ from .base import Writer, source_format
 class PandasWriter(Writer):
     engine = "pandas"
     install_hint = "pandas, pyarrow"
+    reads_sql = True
 
     def imports(self) -> str:
         return "import numpy as np\nimport pandas as pd"
@@ -73,6 +74,8 @@ class PandasWriter(Writer):
         raise TypeError(f"Unsupported step {step!r}")
 
     def main(self, source: Optional[str]) -> str:
+        if self.sql is not None:
+            return self._main_sql()
         fmt = source_format(source)
         if fmt == "parquet":
             load = "pd.read_parquet(SOURCE)"
@@ -82,6 +85,22 @@ class PandasWriter(Writer):
         return (
             "def main() -> None:\n"
             f"    df = transform({load})\n"
+            "    df.to_parquet(OUTPUT, index=False)\n"
+            '    print(f"Wrote {len(df):,} rows -> {OUTPUT}")'
+        )
+
+    def _main_sql(self) -> str:
+        from ...engine.sql import URL_ENV_VAR
+        query = f"SELECT * FROM {self.sql.from_sql()}"
+        return (
+            "def main() -> None:\n"
+            "    import os\n"
+            "    from sqlalchemy import create_engine, text\n\n"
+            f"    # The database URL is read from ${URL_ENV_VAR} so no password is stored here.\n"
+            f"    url = os.environ[{URL_ENV_VAR!r}]\n"
+            "    with create_engine(url).connect() as con:\n"
+            f"        df = pd.read_sql(text({query!r}), con)\n"
+            "    df = transform(df)\n"
             "    df.to_parquet(OUTPUT, index=False)\n"
             '    print(f"Wrote {len(df):,} rows -> {OUTPUT}")'
         )

@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 
 from .backends import is_available
-from .source import CSV_EXTS, DUCKDB_CSV_TYPES, PARQUET_EXTS, _is_polars_frame, csv_sep
+from .source import CSV_EXTS, DUCKDB_CSV_TYPES, PARQUET_EXTS, _is_polars_frame, _is_sql, csv_sep
 
 DEFAULT_SAMPLE_SIZE = 5_000
 _sample_size = DEFAULT_SAMPLE_SIZE
@@ -59,6 +59,9 @@ def sample(
     if _is_polars_frame(source):
         out = source if source.height <= n else source.sample(n=n, seed=random_state)
         return out.to_pandas()
+
+    if _is_sql(source):
+        return source.sample(n, random_state)       # sampled inside the database
 
     if not isinstance(source, (str, Path)):
         raise TypeError(f"source must be a DataFrame or file path, got {type(source)}")

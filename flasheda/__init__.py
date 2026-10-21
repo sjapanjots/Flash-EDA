@@ -12,7 +12,7 @@ from .clean import clean
 from .modeling import train
 from .contract import check
 from .compare import compare
-from .engine import available_engines, choose_engine, inspect_source, sample, get_sample_size, set_sample_size
+from .engine import available_engines, choose_engine, inspect_source, sample, get_sample_size, set_sample_size, sql
 from .analyzers import overview, missing, numeric, categorical, correlation
 from .analyzers import target as target_analyzer
 from .report import EDAReport
@@ -29,6 +29,7 @@ __all__ = [
     "get_sample_size",
     "inspect_source",
     "set_sample_size",
+    "sql",
     "train",
     "EDAReport",
 ]
@@ -46,7 +47,8 @@ def analyze(
     target: Optional[str] = None,
 ) -> EDAReport:
     """
-    Analyse a fixed-size sample of `source` (DataFrame, CSV/TSV or Parquet path).
+    Analyse a fixed-size sample of `source`: a DataFrame, a CSV/TSV or Parquet
+    path, or a database table/query from flasheda.sql().
 
     `target` names the column you want to predict; it adds task detection,
     class balance, per-feature predictive power and leakage checks.
@@ -125,7 +127,10 @@ def analyze(
         warnings=warnings,
         target=tgt,
         source=str(info.path) if info.path else None,
-        recommended_engine=choose_engine(info.n_rows, prefer=engine),
+        sql_source=info.sql,
+        # database sources are read with pandas (or exported with .to_parquet())
+        recommended_engine=choose_engine(
+            info.n_rows, prefer=engine or ("pandas" if info.sql is not None else None)),
         sample=sampled,
     )
 
