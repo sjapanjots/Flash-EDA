@@ -7,8 +7,10 @@ and real breakage (missing columns, new junk values, a column suddenly
 half empty, impossible values) fails.
 
   kind        number / integer / bool / datetime / text, with a small
-              allowance for values that don't parse ("N/A" in a number column)
-  nulls       max null % = observed + max(1 point, 50% of observed)
+              allowance for values that don't parse ("N/A" in a number column):
+              observed + max(0.5 point, 4 standard errors)
+  nulls       max null % = observed + max(1 point, 50% of observed,
+              4 standard errors of the sample estimate)
   range       the 1st and 99th percentiles must stay within bounds (sample
               percentiles widened by 3× their spread). Percentiles, not the
               min/max: the extreme value of a million rows can't be predicted
@@ -147,12 +149,12 @@ def infer_contract(report: "EDAReport", allow_extra_columns: bool = True) -> Con
 def _infer_rule(s: pd.Series, name: str, likely_ids: set) -> ColumnRule:
     n = len(s)
     null_pct = float(s.isna().mean() * 100) if n else 0.0
-    max_null = round(min(100.0, null_pct + max(1.0, null_pct * 0.5)), 2)
+    max_null = round(min(100.0, null_pct + max(1.0, null_pct * 0.5, _noise(null_pct, n))), 2)
     values = s.dropna()
     kind = _kind(s)
     invalid = invalid_share(values, kind) * 100
     rule = dict(name=name, kind=kind, max_null_pct=max_null,
-                max_invalid_pct=round(invalid + INVALID_MARGIN_PCT, 2))
+                max_invalid_pct=round(invalid + max(INVALID_MARGIN_PCT, _noise(invalid, len(values))), 2))
 
     is_id = name in likely_ids or detectors.is_numeric_id(s, name)
     if kind in ("number", "integer") and len(values) and not is_id:   # IDs grow; no range
@@ -210,6 +212,15 @@ def invalid_share(values: pd.Series, kind: str) -> float:
         ok = values.astype(str).str.strip().str.lower().isin(["true", "false", "1", "0"])
         return float((~ok).mean())
     return 0.0
+
+
+def _noise(pct: float, n: int) -> float:
+    """4 standard errors (in percentage points) of a share measured on n sampled rows.
+    A margin smaller than this makes good data fail when the sample was unlucky."""
+    if n <= 0:
+        return 0.0
+    p = min(max(pct / 100, 1 / n), 1 - 1 / n)
+    return 4 * float(np.sqrt(p * (1 - p) / n)) * 100
 
 
 def _round(x: float) -> float:
