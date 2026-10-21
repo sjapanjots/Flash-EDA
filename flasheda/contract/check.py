@@ -102,10 +102,11 @@ def stats_pandas(df: pd.DataFrame, contract: Contract):
         values = s.dropna()
         st: Dict[str, Any] = {"nulls": int(s.isna().sum()), "non_null": int(len(values))}
         st["invalid"] = int(round(invalid_share(values, rule.kind) * len(values)))
-        if rule.min is not None or rule.max is not None:
+        if _has_range(rule):
             x = pd.to_numeric(values, errors="coerce").dropna() if len(values) else values
             st["min"] = float(x.min()) if len(x) else None
-            st["max"] = float(x.max()) if len(x) else None
+            st["p01"] = float(x.quantile(0.01)) if len(x) else None
+            st["p99"] = float(x.quantile(0.99)) if len(x) else None
         if rule.allowed is not None:
             st["unexpected"] = int((~values.astype(str).isin(rule.allowed)).sum())
         if rule.unique:
@@ -132,9 +133,11 @@ def stats_duckdb(path: Path, contract: Contract):
             "non_null": f"count({c})",
             "invalid": _invalid_sql(c, txt, rule.kind),
         }
-        if rule.min is not None or rule.max is not None:
-            parts["min"] = f"min(TRY_CAST({c} AS DOUBLE))"
-            parts["max"] = f"max(TRY_CAST({c} AS DOUBLE))"
+        if _has_range(rule):
+            x = f"TRY_CAST({c} AS DOUBLE)"
+            parts["min"] = f"min({x})"
+            parts["p01"] = f"approx_quantile({x}, 0.01)"
+            parts["p99"] = f"approx_quantile({x}, 0.99)"
         if rule.allowed is not None:
             values = ", ".join(_lit(v) for v in rule.allowed)
             parts["unexpected"] = f"count({c}) FILTER (WHERE {txt} NOT IN ({values}))"
@@ -147,7 +150,7 @@ def stats_duckdb(path: Path, contract: Contract):
     row = con.execute(f"SELECT {', '.join(exprs)} FROM {scan}", params).fetchone()
     stats: Dict[str, Dict[str, Any]] = {r.name: {} for r in present}
     for (name, key), value in zip(keys, row[1:]):
-        stats[name][key] = float(value) if key in ("min", "max") and value is not None else value
+        stats[name][key] = float(value) if key in ("min", "p01", "p99") and value is not None else value
     return stats, columns, int(row[0])
 
 
@@ -223,10 +226,14 @@ def _evaluate_column(rule: ColumnRule, st: Dict[str, Any], rows: int, add) -> No
         bad = round(st["invalid"] / non_null * 100, 2) if non_null else 0.0
         add(Outcome(name, f"values parse as {rule.kind} (% invalid)",
                     bad <= rule.max_invalid_pct, bad, f"≤ {rule.max_invalid_pct}"))
-    if rule.min is not None and st.get("min") is not None:
-        add(Outcome(name, "minimum", st["min"] >= rule.min, st["min"], f"≥ {rule.min}"))
-    if rule.max is not None and st.get("max") is not None:
-        add(Outcome(name, "maximum", st["max"] <= rule.max, st["max"], f"≤ {rule.max}"))
+    if rule.non_negative and st.get("min") is not None:
+        add(Outcome(name, "no negative values", st["min"] >= 0, st["min"], "≥ 0"))
+    if rule.p01_min is not None and st.get("p01") is not None:
+        p01 = _round(st["p01"])
+        add(Outcome(name, "1st percentile", p01 >= rule.p01_min, p01, f"≥ {rule.p01_min}"))
+    if rule.p99_max is not None and st.get("p99") is not None:
+        p99 = _round(st["p99"])
+        add(Outcome(name, "99th percentile", p99 <= rule.p99_max, p99, f"≤ {rule.p99_max}"))
     if rule.allowed is not None:
         pct = round(st["unexpected"] / non_null * 100, 2) if non_null else 0.0
         add(Outcome(name, "unexpected values %", pct <= rule.max_unexpected_pct, pct,
@@ -234,3 +241,11 @@ def _evaluate_column(rule: ColumnRule, st: Dict[str, Any], rows: int, add) -> No
     if rule.unique:
         dupes = non_null - st["distinct"]
         add(Outcome(name, "duplicate values", dupes == 0, dupes, 0))
+
+
+def _has_range(rule: ColumnRule) -> bool:
+    return rule.non_negative or rule.p01_min is not None or rule.p99_max is not None
+
+
+def _round(x: float) -> float:
+    return float(f"{x:.6g}")

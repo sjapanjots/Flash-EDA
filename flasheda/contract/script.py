@@ -54,10 +54,13 @@ def compile_checks(contract: Contract) -> List[Tuple[str, str, str, str, float]]
                         round(r.max_null_pct + r.max_invalid_pct, 2)))
             out.append((r.name, f"values parse as {r.kind} (% invalid)",
                         f"coalesce(round({inv} * 100.0 / {non_null}, 2), 0)", "<=", r.max_invalid_pct))
-        if r.min is not None:
-            out.append((r.name, "minimum", f"min(TRY_CAST({c} AS DOUBLE))", ">=", r.min))
-        if r.max is not None:
-            out.append((r.name, "maximum", f"max(TRY_CAST({c} AS DOUBLE))", "<=", r.max))
+        x = f"TRY_CAST({c} AS DOUBLE)"
+        if r.non_negative:
+            out.append((r.name, "no negative values", f"min({x})", ">=", 0))
+        if r.p01_min is not None:
+            out.append((r.name, "1st percentile", f"approx_quantile({x}, 0.01)", ">=", r.p01_min))
+        if r.p99_max is not None:
+            out.append((r.name, "99th percentile", f"approx_quantile({x}, 0.99)", "<=", r.p99_max))
         if r.allowed is not None:
             values = ", ".join(_lit(v) for v in r.allowed)
             out.append((r.name, "unexpected values %",
@@ -209,12 +212,15 @@ def _pandera_checks(r: ColumnRule) -> str:
                       f"<= {limit!r}, ignore_na=False, error='null or unparseable % above {limit}')")
         checks.append(f"pa.Check(lambda s: _pct(~_parses(s, {r.kind!r})) <= {r.max_invalid_pct!r}, "
                       f"error='unparseable % above {r.max_invalid_pct}')")
-    if r.min is not None or r.max is not None:
-        x = "pd.to_numeric(s, errors='coerce')"
-        if r.min is not None:
-            checks.append(f"pa.Check(lambda s: not ({x} < {r.min!r}).any(), error='below {r.min}')")
-        if r.max is not None:
-            checks.append(f"pa.Check(lambda s: not ({x} > {r.max!r}).any(), error='above {r.max}')")
+    x = "pd.to_numeric(s, errors='coerce')"
+    if r.non_negative:
+        checks.append(f"pa.Check(lambda s: not ({x} < 0).any(), error='negative values')")
+    if r.p01_min is not None:
+        checks.append(f"pa.Check(lambda s: {x}.quantile(0.01) >= {r.p01_min!r}, "
+                      f"error='1st percentile below {r.p01_min}')")
+    if r.p99_max is not None:
+        checks.append(f"pa.Check(lambda s: {x}.quantile(0.99) <= {r.p99_max!r}, "
+                      f"error='99th percentile above {r.p99_max}')")
     if r.allowed is not None:
         checks.append(f"pa.Check(lambda s: _pct(~s.dropna().astype(str).isin({list(r.allowed)!r})) "
                       f"<= {r.max_unexpected_pct!r}, error='unexpected values above {r.max_unexpected_pct}%')")
