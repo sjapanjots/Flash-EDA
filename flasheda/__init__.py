@@ -106,7 +106,7 @@ def analyze(
     txt = results.get("text", {})
     for col in txt.get("personal_data_columns", []):
         kinds = ", ".join(f"{k} {v}%" for k, v in txt["columns"][col]["personal_data"].items())
-        warnings.append(f"Possible personal data in {col!r}: {kinds}")
+        warnings.append(f"Possible personal data in {col!r}: {kinds} of non-empty values")
 
     tgt = results.get("target", {})
     if "error" in tgt:

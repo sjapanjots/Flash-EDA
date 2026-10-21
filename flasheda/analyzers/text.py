@@ -4,7 +4,8 @@ flasheda.analyzers.text
 Text columns:
 
   personal data  emails, phone numbers, URLs, IP addresses and card numbers
-                 (Luhn-checked) found in any text column, as a share of rows
+                 (Luhn-checked) found in any text column, as a share of the
+                 column's non-empty values
   free text      for columns that read like sentences (≥ 3 words on average
                  or ≥ 30 characters): length and word statistics, empty and
                  duplicate values, all-caps share, most common words
@@ -62,7 +63,7 @@ def analyze(df: pd.DataFrame) -> Dict[str, Any]:
 
 
 def personal_data(values: pd.Series) -> Dict[str, float]:
-    """{kind: % of values containing it} for kinds found in ≥ PII_MIN_PCT of values."""
+    """{kind: % of non-empty values containing it}, for kinds in ≥ PII_MIN_PCT of them."""
     if not len(values):
         return {}
     found = {}
