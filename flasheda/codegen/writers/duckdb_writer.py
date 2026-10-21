@@ -5,7 +5,7 @@ from typing import List, Optional
 from ..steps import (
     ClipOutliers, DateParts, DropColumns, DropDuplicates, DropNullRows, FillNull,
     FrequencyEncode, GroupRare, Log1p, MissingIndicator, NormalizeText, OneHot, Plan, Ratio, Step,
-    ToNumeric,
+    TextStats, ToNumeric,
 )
 from ...engine.source import DUCKDB_CSV_TYPES
 from .base import Writer, source_format
@@ -81,6 +81,10 @@ class DuckDBWriter(Writer):
                     fn = {"year": "year", "month": "month", "day": "day",
                           "dayofweek": "isodow", "hour": "hour"}[part]
                     added[name] = f"CAST({fn}({ts}) AS DOUBLE)"
+                continue
+            if isinstance(step, TextStats):
+                added[step.length_name] = f"CAST(length({col}) AS DOUBLE)"
+                added[step.words_name] = f"CAST(len(regexp_extract_all({col}, '\\S+')) AS DOUBLE)"
                 continue
             if isinstance(step, OneHot):
                 for value, name in zip(step.values, step.names):

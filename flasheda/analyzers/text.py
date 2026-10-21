@@ -20,7 +20,7 @@ from typing import Any, Dict, List
 
 import pandas as pd
 
-from ..clean.detectors import is_text
+from ..clean.detectors import is_free_text, is_text
 
 PII_PATTERNS = {
     "email": r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
@@ -30,8 +30,6 @@ PII_PATTERNS = {
     "card_number": r"\b(?:\d[ -]?){13,19}\b",
 }
 PII_MIN_PCT = 1.0                 # report a type when at least 1% of values contain it
-FREE_TEXT_MIN_WORDS = 3.0
-FREE_TEXT_MIN_CHARS = 30.0
 TOP_WORDS = 10
 STOPWORDS = frozenset("""a an and are as at be but by for from has have i in is it its of on or
 that the this to was were will with you your we our they their he she not no so if when what how
@@ -51,10 +49,8 @@ def analyze(df: pd.DataFrame) -> Dict[str, Any]:
         pii = personal_data(values)
         if pii:
             info["personal_data"] = pii
-        words = values.str.count(r"\S+")
-        lengths = values.str.len()
-        if words.mean() >= FREE_TEXT_MIN_WORDS or lengths.mean() >= FREE_TEXT_MIN_CHARS:
-            info["free_text"] = _free_text_stats(values, lengths, words)
+        if is_free_text(s):
+            info["free_text"] = _free_text_stats(values, values.str.len(), values.str.count(r"\S+"))
         if info:
             columns[str(col)] = info
 

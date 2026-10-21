@@ -18,7 +18,7 @@ from .planner import plan_from_report
 from .steps import (
     ClipOutliers, DateParts, DropColumns, DropDuplicates, DropNullRows, FillNull,
     FrequencyEncode, GroupRare, Log1p, MissingIndicator, NormalizeText, OneHot, Plan, Ratio,
-    ToNumeric,
+    TextStats, ToNumeric,
 )
 from .validate import ValidationResult, compare_frames, run_generated, validate_code
 from .writers import WRITERS, get_writer
@@ -83,6 +83,7 @@ __all__ = [
     "OneHot",
     "Plan",
     "Ratio",
+    "TextStats",
     "ToNumeric",
     "ValidationResult",
     "WRITERS",
