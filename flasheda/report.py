@@ -18,6 +18,7 @@ class EDAReport:
     original_shape: tuple
     warnings: list[str] = field(default_factory=list)
     target: Dict[str, Any] = field(default_factory=dict)
+    text: Dict[str, Any] = field(default_factory=dict)
     source: Optional[str] = None
     sql_source: Any = field(default=None, repr=False)
     recommended_engine: str = "pandas"
@@ -108,6 +109,15 @@ class EDAReport:
                     flag,
                 )
             console.print(t)
+
+        free = self.text.get("free_text_columns", []) if self.text else []
+        if free:
+            console.print("[bold]Free-text columns[/bold]")
+            for col in free:
+                ft = self.text["columns"][col]["free_text"]
+                console.print(f"  {col}: {ft['mean_words']} words / {ft['mean_chars']} chars on average, "
+                              f"{ft['empty_pct']}% empty, top words: {', '.join(ft['top_words'][:5])}")
+            console.print()
 
         if self.target:
             _show_target(console, self.target)
@@ -369,6 +379,7 @@ class EDAReport:
             "original_shape":   list(self.original_shape),
             "warnings":         self.warnings,
             "target":           self.target,
+            "text":             self.text,
             "source":           self.source or (self.sql_source.display if self.sql_source else None),
             "recommended_engine": self.recommended_engine,
         }
@@ -570,6 +581,26 @@ def _render_html(r: EDAReport) -> str:
                       f"<td>{p['col_b']}</td>"
                       f"<td>{p['pearson_r']}</td></tr>")
 
+    text_html = ""
+    text_cols = (r.text or {}).get("columns", {})
+    if text_cols:
+        rows_html = ""
+        for col, info in text_cols.items():
+            pii = ", ".join(f"{k} {v}%" for k, v in info.get("personal_data", {}).items())
+            ft = info.get("free_text")
+            desc = (f"{ft['mean_words']} words avg · {ft['empty_pct']}% empty · "
+                    f"{', '.join(ft['top_words'][:5])}") if ft else ""
+            badge = f'<span class="badge danger">{_esc(pii)}</span>' if pii else ""
+            rows_html += f"<tr><td><strong>{_esc(col)}</strong></td><td>{badge}</td><td class=\"muted\">{_esc(desc)}</td></tr>"
+        text_html = f"""
+  <div class="card">
+    <h2>Text columns</h2>
+    <table>
+      <thead><tr><th>Column</th><th>Possible personal data</th><th>Free text</th></tr></thead>
+      <tbody>{rows_html}</tbody>
+    </table>
+  </div>"""
+
     target_html = ""
     if r.target:
         t = r.target
@@ -679,6 +710,7 @@ def _render_html(r: EDAReport) -> str:
       <tbody>{cat_rows_html}</tbody>
     </table>
   </div>
+  {text_html}
   {target_html}
   {"" if not corr_html else f'''
   <div class="card">
