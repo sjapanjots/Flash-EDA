@@ -2,6 +2,39 @@
 
 All notable changes to FlashEDA. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] — Safer cleaning and honest evaluation
+
+Fixes from an independent test review.
+
+### Added
+- **Risk, confidence and approval** for every cleaning step: a step registry (risk, reversibility, engines), a per-step confidence from the sample, and `approve="confident" | "all" | "safe"`. Skipped steps are kept in `plan.skipped` and listed in the generated script; `plan.review()` shows them all
+- `plan.impact(source)`: a dry run on the full data (rows removed, columns dropped/added, nulls and distinct values before/after)
+- `protect=[...]`: columns that are never dropped or changed
+- Numbers with thousands separators, decimal commas and currency (`"1,250.50"`, `"₹1,25,000"`, `"1.250,50"`, `"12%"`) in all four engines; `decimal=` when the format is ambiguous
+- Dates in common non-ISO formats (`25/12/2026`, `7-Nov-2026`); ambiguous day/month order is never guessed, set it with `date_formats=`
+- `fe.CleanConfig`: every cleaning choice in one object that saves to JSON
+- `fe.sample_size(n)`: a context-local sample size, safe in threads and async code
+- `train()`: an untouched holdout of the latest 20% of rows for time-based data (`holdout=`); `rare_classes="error" | "drop" | "merge"`; custom `ModelSpec` candidates; `result.beats_baseline` with a warning when no model beats the baseline
+- `analyze(strict=False)`: a failed analysis section is reported in `report.errors` and the warnings instead of disappearing
+- CI job that runs the generated PySpark code; acceptance tests with hand-written expected outputs; SQL dialect tests
+
+### Changed
+- **Outlier clipping is off by default**: outliers are listed in `plan.suggestions`; pass `clip_outliers=True` to clip as before
+- High-risk steps the sample isn't sure about (e.g. a column 51% missing) are skipped until approved; pass `approve="all"` for the old behaviour
+- Time columns are found by their values, not only by names like `date` or `_at`
+- `random_state` now reaches cross-validation, the models and `train.py` (was fixed at 42)
+- The baseline model is always part of the comparison
+
+### Fixed
+- A failed analysis section made `report.show()` crash
+- `train()` crashed with an unclear scikit-learn error when a target class had 1 or 2 rows; time-based splits could leave a class out of a fold
+- Generated scripts could contain `np.str_('yes')` (pandas 2), which fails with a NameError
+- Sampling and column listing failed on SQL Server and Oracle (no `LIMIT`; Oracle rejects `AS` on subquery aliases)
+- Generated PySpark code crashed on Spark 4 (ANSI mode) when text didn't parse as a number or date; it now returns null as on Spark 3
+
+### Not changed
+- The engines keep separate code writers rather than a shared execution layer; acceptance tests and per-engine validation keep them consistent
+
 ## [0.6.0] — Text, time series and notebooks
 
 ### Added
@@ -84,6 +117,7 @@ All notable changes to FlashEDA. Versions follow [Semantic Versioning](https://s
 ## [0.1.3] and earlier
 - Fixed-sample EDA: overview, missing values, numeric and categorical summaries, correlations; console, HTML and PDF reports.
 
+[0.7.0]: https://github.com/sjapanjots/Flash-EDA/releases/tag/v0.7.0
 [0.6.0]: https://github.com/sjapanjots/Flash-EDA/releases/tag/v0.6.0
 [0.5.0]: https://github.com/sjapanjots/Flash-EDA/releases/tag/v0.5.0
 [0.4.0]: https://github.com/sjapanjots/Flash-EDA/releases/tag/v0.4.0

@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="flasheda",
-    version="0.6.0",
+    version="0.7.0",
     description=(
         "Fixed-time EDA for any dataset size, plus validated cleaning, feature "
         "and training code for pandas, polars, DuckDB and PySpark."
