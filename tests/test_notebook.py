@@ -28,9 +28,10 @@ def test_minimal_notebook(shop_csv, tmp_path, monkeypatch):
     report = fe.analyze(shop_csv, save_pdf=False)
     path = report.to_notebook(tmp_path / "a.ipynb")
     nb, ns = run_notebook(path, tmp_path, monkeypatch)
-    titles = [c["source"][0] for c in nb["cells"] if c["cell_type"] == "markdown"]
-    assert titles[0].startswith("# FlashEDA analysis: `shop.csv`")
-    assert any(t.startswith("## Cleaning") for t in titles)
+    markdown = ["".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "markdown"]
+    assert "flasheda-mark-128.png" in markdown[0]                       # logo on top
+    assert "# FlashEDA analysis: `shop.csv`" in markdown[0]
+    assert any(m.startswith("## Cleaning") for m in markdown)
     assert (tmp_path / "cleaned.parquet").exists() and (tmp_path / "contract.json").exists()
     assert ns["result"].ok
 

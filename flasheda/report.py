@@ -166,14 +166,17 @@ class EDAReport:
         orig_rows, orig_cols = self.original_shape
 
         # ── Title bar ──────────────────────────────────────────────────────
+        from .branding import draw_pdf_mark
+        bar_y = pdf.get_y()
         pdf.set_font("Helvetica", "B", 20)
-        pdf.set_fill_color(26, 26, 46)
+        pdf.set_fill_color(11, 18, 32)
         pdf.set_text_color(255, 255, 255)
         pdf.cell(0, 14, "FlashEDA Report",
                  new_x="LMARGIN", new_y="NEXT", fill=True, align="C")
+        draw_pdf_mark(pdf, pdf.l_margin + 2.5, bar_y + 2, 10)
 
         pdf.set_font("Helvetica", "", 9)
-        pdf.set_fill_color(40, 40, 70)
+        pdf.set_fill_color(22, 35, 61)
         pdf.cell(
             0, 8,
             f"Rows: {orig_rows:,}  |  Columns: {orig_cols}  |  "
@@ -515,6 +518,7 @@ def _esc(value: Any) -> str:
 
 
 def _render_html(r: EDAReport) -> str:
+    from .branding import favicon_data_uri, mark_svg
     num_stats   = r.numeric.get("numeric_col_names", [])
     cat_stats   = r.categorical.get("categorical_col_names", [])
     strong_corr = r.correlation.get("numeric_strong_pairs", [])
@@ -647,11 +651,13 @@ def _render_html(r: EDAReport) -> str:
 <head>
 <meta charset="UTF-8">
 <title>FlashEDA Report</title>
+<link rel="icon" type="image/svg+xml" href="{favicon_data_uri()}">
 <style>
   *{{box-sizing:border-box;margin:0;padding:0}}
   body{{font-family:system-ui,sans-serif;background:#f5f7fa;color:#222;font-size:14px}}
   .container{{max-width:1100px;margin:0 auto;padding:24px 16px}}
-  header{{background:#1a1a2e;color:#fff;padding:24px 32px;border-radius:10px;margin-bottom:24px}}
+  header{{background:#0B1220;color:#fff;padding:24px 32px;border-radius:10px;margin-bottom:24px;display:flex;gap:18px;align-items:center}}
+  header svg{{flex:none;display:block}}
   header h1{{font-size:22px;font-weight:600;margin-bottom:6px}}
   header .meta{{font-size:13px;color:#aac}}
   .card{{background:#fff;border-radius:10px;padding:20px 24px;margin-bottom:20px;box-shadow:0 1px 4px rgba(0,0,0,.07)}}
@@ -675,11 +681,14 @@ def _render_html(r: EDAReport) -> str:
 <body>
 <div class="container">
   <header>
+    {mark_svg(48, "hdr")}
+    <div>
     <h1>FlashEDA Report</h1>
     <div class="meta">
       {orig_rows:,} rows x {orig_cols} columns &nbsp;|&nbsp;
       Analysed on {r.sample_size:,} sampled rows &nbsp;|&nbsp;
       Completed in {r.elapsed_seconds:.2f}s
+    </div>
     </div>
   </header>
   {warn_html}
