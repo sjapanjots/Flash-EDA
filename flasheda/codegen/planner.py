@@ -76,7 +76,10 @@ def plan_from_report(
     clip_outliers: bool = False,
     approve: str = "confident",
     protect: Sequence[str] = (),
+    decimal: Optional[str] = None,
 ) -> Plan:
+    if decimal not in (None, ".", ","):
+        raise ValueError("decimal must be None (detect), '.' or ','")
     if approve not in APPROVE:
         raise ValueError(f"approve must be one of {APPROVE}")
     sample = report.sample
@@ -153,6 +156,17 @@ def plan_from_report(
             add(ToNumeric(col, reason=f"{ratio:.0%} of values are numbers stored as text",
                           confidence=proportion_confidence(ratio, detectors.NUMERIC_TEXT_MIN_RATIO,
                                                            int(df[col].notna().sum()))))
+        elif fix_numeric_text and (fmt := detectors.number_format(df[col], decimal)) is not None:
+            if fmt.ambiguous:
+                plan.suggestions.append(
+                    f"{col}: numbers like {_example(df[col])!r} could use ',' or '.' as the "
+                    "decimal mark; pass decimal='.' or decimal=',' to convert them")
+            else:
+                add(ToNumeric(col, fmt.thousands, fmt.decimal, fmt.strip,
+                              reason=f"{fmt.ratio:.0%} of values are numbers written with "
+                                     f"separators or symbols",
+                              confidence=proportion_confidence(fmt.ratio, detectors.NUMERIC_TEXT_MIN_RATIO,
+                                                               int(df[col].notna().sum()))))
         elif normalize_text:
             variants = detectors.text_variants(df[col])
             if variants:
@@ -239,3 +253,9 @@ def check_protected(protect: Sequence[str], columns, target: Optional[str]) -> s
     if missing:
         raise KeyError(f"Protected column(s) not found: {missing}")
     return set(protect)
+
+
+def _example(s: pd.Series) -> str:
+    values = s.dropna().astype(str)
+    with_sep = values[values.str.contains(r"[.,]")]
+    return str((with_sep if len(with_sep) else values).iloc[0])

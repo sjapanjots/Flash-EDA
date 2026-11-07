@@ -5,7 +5,7 @@ from typing import List, Optional
 from ..steps import (
     ClipOutliers, DateParts, DropColumns, DropDuplicates, DropNullRows, FillNull,
     FrequencyEncode, GroupRare, Log1p, MissingIndicator, NormalizeText, OneHot, Plan, Ratio, Step,
-    TextStats, ToNumeric,
+    TextStats, ToNumeric, numeric_noise,
 )
 from ...engine.source import DUCKDB_CSV_TYPES
 from .base import Writer, source_format
@@ -94,7 +94,12 @@ class DuckDBWriter(Writer):
                 cases = " ".join(f"WHEN {literal(v)} THEN {literal(float(f))}" for v, f in step.mapping)
                 col = f"CASE {col} {cases} ELSE {literal(float(step.default))} END"
             elif isinstance(step, ToNumeric):
-                col = f"TRY_CAST(trim(CAST({col} AS VARCHAR), ' ') AS DOUBLE)"
+                text = f"CAST({col} AS VARCHAR)"
+                if numeric_noise(step):
+                    text = f"regexp_replace({text}, {literal(numeric_noise(step))}, '', 'g')"
+                if step.decimal == ",":
+                    text = f"replace({text}, ',', '.')"
+                col = f"TRY_CAST(trim({text}, ' ') AS DOUBLE)"
             elif isinstance(step, NormalizeText):
                 col = f"lower(trim({col}, ' '))"
             elif isinstance(step, GroupRare):

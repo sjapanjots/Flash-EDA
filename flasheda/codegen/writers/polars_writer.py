@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 from ..steps import (
     ClipOutliers, DateParts, DropColumns, DropDuplicates, DropNullRows, FillNull,
     FrequencyEncode, GroupRare, Log1p, MissingIndicator, NormalizeText, OneHot, Plan, Ratio,
-    TextStats, ToNumeric,
+    TextStats, ToNumeric, numeric_noise,
 )
 from .base import Writer, source_format
 
@@ -82,7 +82,12 @@ class PolarsWriter(Writer):
                 e = (f"{e}.replace_strict({dict(step.mapping)!r}, default={step.default!r}, "
                      f"return_dtype=pl.Float64).fill_null({step.default!r})")
             elif isinstance(step, ToNumeric):
-                e += '.cast(pl.String).str.strip_chars(" ").cast(pl.Float64, strict=False)'
+                e += ".cast(pl.String)"
+                if numeric_noise(step):
+                    e += f'.str.replace_all({numeric_noise(step)!r}, "")'
+                if step.decimal == ",":
+                    e += '.str.replace_all(",", ".", literal=True)'
+                e += '.str.strip_chars(" ").cast(pl.Float64, strict=False)'
             elif isinstance(step, NormalizeText):
                 e += '.str.strip_chars(" ").str.to_lowercase()'
             elif isinstance(step, GroupRare):

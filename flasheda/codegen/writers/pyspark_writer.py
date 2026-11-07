@@ -5,7 +5,7 @@ from typing import Optional
 from ..steps import (
     ClipOutliers, DateParts, DropColumns, DropDuplicates, DropNullRows, FillNull,
     FrequencyEncode, GroupRare, Log1p, MissingIndicator, NormalizeText, OneHot, Plan, Ratio,
-    TextStats, ToNumeric,
+    TextStats, ToNumeric, numeric_noise,
 )
 from .base import Writer, source_format
 
@@ -68,7 +68,12 @@ class PySparkWriter(Writer):
                 f"df = df.withColumn({name!r}, F.coalesce({c} == {value!r}, F.lit(False)))"
                 for value, name in zip(step.values, step.names))
         if isinstance(step, ToNumeric):
-            e = f'F.trim({c}.cast("string")).cast("double")'
+            text = f'{c}.cast("string")'
+            if numeric_noise(step):
+                text = f'F.regexp_replace({text}, {numeric_noise(step)!r}, "")'
+            if step.decimal == ",":
+                text = f'F.regexp_replace({text}, ",", ".")'
+            e = f'F.trim({text}).cast("double")'
         elif isinstance(step, NormalizeText):
             e = f"F.lower(F.trim({c}))"
         elif isinstance(step, GroupRare):

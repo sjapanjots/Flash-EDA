@@ -48,9 +48,16 @@ class DropNullRows:
 
 @dataclass(frozen=True)
 class ToNumeric:
-    """Parse text as numbers (spaces trimmed); unparseable values become null."""
+    """
+    Parse text as numbers (spaces trimmed); unparseable values become null.
+    Locale-aware when set: characters in `strip` (currency, %) and the
+    `thousands` separator are removed, and a "," `decimal` mark becomes ".".
+    """
 
     column: str
+    thousands: str = ""
+    decimal: str = "."
+    strip: str = ""
     reason: str = ""
     confidence: float = field(default=1.0, compare=False)
 
@@ -193,6 +200,13 @@ Step = Union[
 ]
 
 
+def numeric_noise(step: "ToNumeric") -> str:
+    """Regex class of the characters ToNumeric removes before parsing ("" if none)."""
+    from ..clean.detectors import char_class
+    chars = step.strip + step.thousands
+    return char_class(chars) if chars else ""
+
+
 def inputs(step) -> tuple:
     """Columns a column step reads."""
     if isinstance(step, Ratio):
@@ -291,7 +305,12 @@ class Plan:
             elif isinstance(step, DropNullRows):
                 out = out[out[step.column].notna()].reset_index(drop=True)
             elif isinstance(step, ToNumeric):
-                text = out[step.column].astype("string").str.strip(" ")
+                text = out[step.column].astype("string")
+                if numeric_noise(step):
+                    text = text.str.replace(numeric_noise(step), "", regex=True)
+                if step.decimal == ",":
+                    text = text.str.replace(",", ".", regex=False)
+                text = text.str.strip(" ")
                 out[step.column] = pd.to_numeric(text, errors="coerce").astype("float64")
             elif isinstance(step, NormalizeText):
                 out[step.column] = out[step.column].str.strip(" ").str.lower()
@@ -339,7 +358,11 @@ def _label(step: Step) -> str:
     if isinstance(step, DropNullRows):
         return f"drop rows where {step.column!r} is null"
     if isinstance(step, ToNumeric):
-        return f"convert {step.column!r} from text to numbers"
+        fmt = ""
+        if step.thousands or step.decimal != "." or step.strip:
+            fmt = (f" (thousands {step.thousands!r}, decimal {step.decimal!r}"
+                   + (f", strip {step.strip!r}" if step.strip else "") + ")")
+        return f"convert {step.column!r} from text to numbers{fmt}"
     if isinstance(step, NormalizeText):
         return f"trim and lower-case {step.column!r}"
     if isinstance(step, GroupRare):

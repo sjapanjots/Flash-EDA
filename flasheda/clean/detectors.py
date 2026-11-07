@@ -7,6 +7,8 @@ steps the planner adds. Each returns plain values (no side effects).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import re
 from typing import Optional, Tuple
 
@@ -70,6 +72,68 @@ def numeric_text_ratio(s: pd.Series) -> Optional[float]:
 def is_numeric_text(s: pd.Series) -> bool:
     ratio = numeric_text_ratio(s)
     return ratio is not None and ratio >= NUMERIC_TEXT_MIN_RATIO
+
+
+CURRENCY_CHARS = "$€£¥₹₩₽₺₪₫฿%"
+_SIGN = r"[-+]?"
+_COMMA_THOUSANDS = (rf"{_SIGN}(?:\d{{1,3}}(?:,\d{{3}})+(?:\.\d+)?"          # 1,250.50
+                    rf"|\d{{1,2}}(?:,\d{{2}})+,\d{{3}}(?:\.\d+)?"           # 1,25,000 (Indian)
+                    rf"|\d+(?:\.\d+)?|\.\d+)")                              # 1250.5
+_DOT_THOUSANDS = (rf"{_SIGN}(?:\d{{1,3}}(?:\.\d{{3}})+(?:,\d+)?"            # 1.250,50
+                  rf"|\d+,\d+|\d+)")                                         # 12,5
+
+
+@dataclass(frozen=True)
+class NumberFormat:
+    """How numbers are written: thousands separator, decimal mark, symbols to strip."""
+
+    thousands: str = ""
+    decimal: str = "."
+    strip: str = ""
+    ratio: float = 1.0           # share of values that parse with this format
+    ambiguous: bool = False      # "1,250" / "1.250": both formats fit, pass decimal= to choose
+
+
+def number_format(s: pd.Series, decimal: Optional[str] = None) -> Optional[NumberFormat]:
+    """
+    Numbers written with thousands separators, a decimal comma or currency
+    symbols ("1,250.50", "₹5,000", "1.250,5", "12%"). None if the column
+    isn't such numbers; `ambiguous` when "1,250" could be 1250 or 1.25 and
+    `decimal` ("." or ",") wasn't given.
+    """
+    if not is_text(s):
+        return None
+    values = s.dropna().astype(str).str.strip(" ")
+    values = values[values != ""]
+    if len(values) < MISSING_MIN_ROWS:
+        return None
+    if values.str.match(r"^-?0\d").mean() > LEADING_ZERO_MAX_RATIO:
+        return None
+    strip = "".join(c for c in CURRENCY_CHARS if values.str.contains(c, regex=False).any())
+    core = values.str.replace(char_class(strip), "", regex=True).str.strip(" ") if strip else values
+    comma = float(core.str.fullmatch(_COMMA_THOUSANDS).mean())
+    dot = float(core.str.fullmatch(_DOT_THOUSANDS).mean())
+    us = NumberFormat(",", ".", strip, comma)
+    eu = NumberFormat(".", ",", strip, dot)
+    ok = lambda f: f.ratio >= NUMERIC_TEXT_MIN_RATIO      # noqa: E731
+    if decimal == ".":
+        return us if ok(us) else None
+    if decimal == ",":
+        return eu if ok(eu) else None
+    if ok(us) and ok(eu):
+        if not core.str.contains(r"[.,]").any():
+            return us                       # plain integers with symbols: separators don't matter
+        return NumberFormat(",", ".", strip, comma, ambiguous=True)
+    if ok(us):
+        return us
+    if ok(eu):
+        return eu
+    return None
+
+
+def char_class(chars: str) -> str:
+    """A regex character class matching any of `chars` (works in Python, Rust, RE2 and Java)."""
+    return "[" + "".join("\\" + c if c in "\\]^-[" else c for c in chars) + "]"
 
 
 def text_variants(s: pd.Series) -> Optional[Tuple[int, int]]:
