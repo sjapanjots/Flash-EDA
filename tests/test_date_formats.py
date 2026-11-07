@@ -8,7 +8,7 @@ from flasheda.clean.detectors import date_format
 from flasheda.codegen import generate, run_generated
 from flasheda.codegen.steps import DateParts, Plan, java_date_format
 
-ENGINES = [e for e in ("pandas", "polars", "duckdb")
+ENGINES = [e for e in ("pandas", "polars", "duckdb", "pyspark")
            if e == "pandas" or importlib.util.find_spec(e) is not None]
 
 
