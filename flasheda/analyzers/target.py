@@ -32,6 +32,7 @@ NUMERIC_BINS = 20
 SMOOTHING = 10.0             # pseudo-count pulling small buckets toward the prior
 MIN_ROWS = 30
 TIME_HINTS = ("date", "time", "timestamp", "_at", "_on")
+DATE_SHAPE = r"(?:^|\D)\d{4}(?:\D|$)|\d{1,2}:\d{2}"   # a 4-digit year or a clock time
 
 
 def analyze(df: pd.DataFrame, target: str, random_state: int = 42) -> Dict[str, Any]:
@@ -192,16 +193,31 @@ def _regression_stats(y: pd.Series) -> Dict[str, float]:
 
 
 def find_time_columns(df: pd.DataFrame) -> List[str]:
+    """
+    Columns that hold dates or timestamps, found by content: a datetime
+    dtype, or text that parses as dates. A name hint ("date", "_at", ...)
+    lowers the bar for text: without one, values must also carry a 4-digit
+    year or a clock time, so codes like "1-2" or "3/4" aren't taken as dates.
+    """
     found = []
     for col in df.columns:
         s = df[col]
         if pd.api.types.is_datetime64_any_dtype(s):
             found.append(col)
             continue
+        if not looks_like_datetime(s):
+            continue
         name = str(col).lower()
-        if any(h in name for h in TIME_HINTS) and looks_like_datetime(s):
+        if any(h in name for h in TIME_HINTS) or _clearly_dates(s):
             found.append(col)
     return found
+
+
+def _clearly_dates(s: pd.Series, min_ratio: float = 0.95) -> bool:
+    values = s.dropna().astype(str).head(200)
+    if values.nunique() < 2:
+        return False
+    return bool(values.str.contains(DATE_SHAPE).mean() >= min_ratio)
 
 
 def recommend_metric(r: Dict[str, Any]) -> str:
