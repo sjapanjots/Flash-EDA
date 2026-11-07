@@ -7,7 +7,7 @@ full-size work.
 """
 
 from .backends import ENGINES, available_engines, choose_engine, is_available
-from .sampler import get_sample_size, sample, set_sample_size
+from .sampler import get_sample_size, sample, sample_size, set_sample_size
 from .source import SourceInfo, inspect_source
 from .sql import SqlSource, sql
 
@@ -21,6 +21,7 @@ __all__ = [
     "inspect_source",
     "is_available",
     "sample",
+    "sample_size",
     "set_sample_size",
     "sql",
 ]
