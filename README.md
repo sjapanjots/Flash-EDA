@@ -159,7 +159,11 @@ report.warnings                # list of strings
 
 Nothing is written to disk unless you ask; `fe.analyze(..., save_pdf=True)` also writes `flasheda_report.pdf`.
 
-The sample size is 5,000 rows by default; change it with `fe.set_sample_size(20_000)` or per call with `n=`.
+The sample size is 5,000 rows by default; change it per call with `n=`, for a block of code with `with fe.sample_size(20_000): ...` (safe in threads and async code), or globally with `fe.set_sample_size(20_000)`.
+
+DataFrames and files are sampled differently: a DataFrame uses pandas `DataFrame.sample(random_state=...)`, a file a seeded DuckDB reservoir sample (or chunked random keys without DuckDB). The same seed gives a reproducible sample for each, but the same data as a DataFrame and as a file gives different sampled rows.
+
+If one section of the analysis fails (say, correlations on an odd column), the report still comes back. The section is empty, the error is in `report.errors`, and a warning names it. Pass `strict=True` to raise instead. A failure in the target analysis always raises.
 
 ### 2. Target analysis and leakage
 
@@ -177,7 +181,7 @@ report.target["recommended_split"]    # e.g. "time-based split on signup_date: .
 - **Predictive power** is measured per feature on a held-out part of the sample: a Brier skill score for classification and R² (binned or linear) for regression. ID-like columns score about 0 instead of looking perfect.
 - **Leakage**: a feature with power ≥ 0.8 on its own is flagged. It's usually recorded after the outcome (a refund flag for churn, for example).
 - **Metric**: PR-AUC for imbalanced binary targets, ROC-AUC for balanced ones, macro-F1 for imbalanced multiclass, MAE for skewed regression targets, otherwise RMSE.
-- **Split**: time-based when a date column exists, otherwise stratified (classification) or plain K-fold.
+- **Split**: time-based when a date column exists, otherwise stratified (classification) or plain K-fold. Date columns are found by their values, so a column called `moment` holding timestamps counts. Without a name hint like `date` or `_at`, values need a 4-digit year or a clock time, so codes like `1-2` aren't mistaken for dates.
 
 ### 3. Cleaning code
 
@@ -224,22 +228,53 @@ def main() -> None:
 |---|---|
 | Drop columns | likely IDs, more than 50% missing, constant, possible target leakage |
 | Drop rows with a null target | the target has nulls |
-| Text → numbers | ≥ 95% of values parse as numbers (`"12.5"`, `" 3 "`, with junk like `"N/A"`) |
+| Text → numbers | ≥ 95% of values parse as numbers (`"12.5"`, `" 3 "`, with junk like `"N/A"`), including thousands separators, decimal commas and currency (`"1,250.50"`, `"₹1,25,000"`, `"1.250,50"`, `"12%"`) |
 | Trim + lower-case | spelling variants collapse (`"Delhi"`, `" delhi"`, `"DELHI"`) |
 | Drop duplicate rows | duplicates in the sample |
 | Group rare values | categories under 1% each become `other` |
 | `<col>_was_missing` flag | the target behaves differently when the value is missing |
 | Fill nulls | median for numbers, mode for text |
 | Log transform | skewed non-negative columns (sign-preserving `log1p`, safe for unseen negatives) |
-| Clip outliers | more than 5% IQR outliers |
+| Clip outliers | only with `clip_outliers=True`; otherwise columns with more than 5% IQR outliers are listed in `plan.suggestions` |
 
 The target is never transformed. Any phase can be switched off:
 
 ```python
-report.codegen("duckdb", group_rare=False, clip_outliers=False, drop_leaks=False)
+report.codegen("duckdb", group_rare=False, drop_leaks=False)
 ```
 
-Options: `drop_ids`, `drop_missing`, `drop_leaks`, `drop_null_target`, `fix_numeric_text`, `normalize_text`, `drop_duplicates`, `group_rare`, `missing_indicators`, `fill_nulls`, `fix_skew`, `clip_outliers`.
+Options: `drop_ids`, `drop_missing`, `drop_leaks`, `drop_null_target`, `fix_numeric_text`, `normalize_text`, `drop_duplicates`, `group_rare`, `missing_indicators`, `fill_nulls`, `fix_skew`, `clip_outliers` (off by default), plus `approve`, `protect`, `decimal` and `date_formats` below.
+
+**Risk, confidence and approval.** Every step has a risk level (low: adds columns or is reversible; medium: changes values; high: removes columns or rows, or caps values) and a confidence: how sure the sample is that the full data would lead to the same decision, from the sample size and the margin over the threshold. `approve=` decides what is applied without asking:
+
+| `approve=` | Applies |
+|---|---|
+| `"confident"` (default) | everything except high-risk steps with confidence below 0.95 |
+| `"all"` | every step |
+| `"safe"` | only low-risk steps |
+
+```python
+plan = report.plan()
+plan.review()          # table: step, risk, reversible, confidence, applied/skipped, why
+plan.skipped           # steps waiting for approval (re-plan with approve="all")
+plan.suggestions       # findings left to you, e.g. outliers, ambiguous number or date formats
+plan.impact("orders.parquet").show()   # dry run on the FULL data: rows removed, nulls before/after
+```
+
+Skipped steps and suggestions are also listed in the generated script's header. `plan.impact()` scans files with DuckDB using the plan's own SQL and writes nothing.
+
+**Protected columns.** `protect=["order_id", "notes"]` keeps columns exactly as they are, like the target: never dropped, converted or encoded.
+
+**Number and date formats.** Separators and currency are detected per column. When a value like `"1,250"` could be 1250 or 1.25, nothing is guessed: the column is listed in `plan.suggestions`, and `decimal="."` or `decimal=","` decides. Dates work the same way (see [Features](#4-features)).
+
+**One config object.** `fe.CleanConfig` holds every choice and works with `report.plan`, `codegen`, `fe.clean` and `fe.train`. Keyword options win over it:
+
+```python
+cfg = fe.CleanConfig(protect=["order_id"], approve="all", decimal=",", features=True)
+cfg.save("cleaning.json")
+fe.clean("orders.csv", config=fe.CleanConfig.load("cleaning.json"))
+report.plan(config=cfg, group_rare=False)
+```
 
 ### 4. Features
 
@@ -250,12 +285,14 @@ code = fe.clean("orders.csv", target="churn", features=True)
 
 | Feature | Rule |
 |---|---|
-| Date parts | ISO date/timestamp text or datetime columns → year, month, day, day of week (ISO, Monday = 1), hour (when times vary) |
+| Date parts | datetime columns, ISO text, or text in a detected format (`25/12/2026`, `7-Nov-2026`, `25.12.2026 18:30`) → year, month, day, day of week (ISO, Monday = 1), hour (when times vary) |
 | One-hot | text columns with ≤ 15 values |
 | Frequency encoding | text columns with ≤ 500 values (each value → its share of the sample) |
 | Text length / words | free-text columns → `<col>_length`, `<col>_words` |
 | Ratios | `a / b` for the most predictive numeric pairs, kept only if the ratio beats both inputs |
 | Dropped | free text after its stats, columns with personal data, text with > 500 values |
+
+Day/month order is never guessed. If `07/11/2026` could be 7 November or July 11 (no day above 12 in the sample), the column is listed in `plan.suggestions`. Set the format with `report.plan(features=True, date_formats={"ordered": "%m/%d/%Y"})`.
 
 ### 5. Models
 
@@ -270,7 +307,16 @@ result.save("prep.py", "train.py")
 - Compares a baseline, a linear model (logistic regression or ridge), a random forest and histogram gradient boosting on the sample, using the recommended metric and split.
 - `prep.py` cleans the full data and adds features in the chosen engine, then writes `features.parquet`.
 - `train.py` cross-validates the best model on that file with the same metric and split, fits on all rows (a random 2,000,000 when there are more) and saves `model.joblib`. It's validated by running it on the sample.
-- Restrict the candidates with `models=["baseline", "logistic_regression"]`.
+- Restrict the candidates with `models=["logistic_regression", "random_forest"]`, or add your own:
+  ```python
+  from flasheda.modeling import ModelSpec
+  knn = ModelSpec("knn", "sklearn.neighbors", "KNeighborsClassifier", {"n_neighbors": 25}, scale=True)
+  fe.train("orders.csv", target="churn", models=[knn, "random_forest"])
+  ```
+- The baseline is always compared. If no model beats it by more than one standard error, `result.beats_baseline` is `False` and `result.warnings` says the features may carry little signal.
+- **Time-based data:** the latest 20% of rows are an untouched holdout. Models are picked by cross-validation on the earlier rows and then scored once on the holdout (the `holdout` column; `holdout=0` turns it off). `train.py` does the same on the full data.
+- **Rare classes:** a class with fewer than 2 sampled rows stops with an explanation; for multiclass targets `rare_classes="drop"` or `"merge"` handles it. Folds are reduced, with a warning, when a class is too small for 5.
+- `random_state=` seeds the sample, the folds and the models, and is written into `train.py`.
 
 ### 6. Data contracts
 
@@ -408,20 +454,22 @@ Override with `fe.analyze(..., engine="duckdb")` or `report.codegen("duckdb")`. 
 
 | Function | Returns | Purpose |
 |---|---|---|
-| `fe.analyze(source, n=None, *, target=None, engine=None, random_state=42, show=False, save_pdf=False, pdf_path=...)` | `EDAReport` | profile a source |
+| `fe.analyze(source, n=None, *, target=None, engine=None, random_state=42, show=False, save_pdf=False, pdf_path=..., strict=False)` | `EDAReport` | profile a source |
 | `fe.clean(source, target=None, engine=None, *, output="cleaned.parquet", features=False, validate=True, **plan_options)` | `GeneratedCode` | cleaning (and feature) script |
-| `fe.train(source, target, engine=None, *, output="features.parquet", model_path="model.joblib", models=None, n_splits=5)` | `ModelResult` | model comparison, prep and training scripts |
+| `fe.train(source, target, engine=None, *, output="features.parquet", model_path="model.joblib", models=None, n_splits=5, holdout=0.2, rare_classes="error", random_state=42, config=None)` | `ModelResult` | model comparison, prep and training scripts |
+| `fe.CleanConfig(...)` | `CleanConfig` | every cleaning choice in one object (`.save()`, `.load()`, `.replace()`) |
 | `fe.check(source, contract)` | `CheckResult` | check full data against a contract (object or JSON path) |
 | `fe.compare(reference, current, *, n=None)` | `DriftReport` | schema changes and drift |
 | `fe.timeseries(source, time, value=None, *, agg="sum", freq=None)` | `TimeSeriesReport` | time-series profile |
 | `fe.sql(url, table=None, query=None)` | `SqlSource` | database table or query as a source |
-| `fe.set_sample_size(n)` / `fe.get_sample_size()` | | default sample size (≥ 100) |
+| `fe.sample_size(n)` | context manager | sample size inside a `with` block (thread- and async-safe) |
+| `fe.set_sample_size(n)` / `fe.get_sample_size()` | | process-wide default sample size (≥ 100) |
 | `fe.available_engines()` | `dict` | installed engines |
 
 | `EDAReport` method | Purpose |
 |---|---|
 | `show()`, `to_html()`, `save_html(path)`, `save_pdf(path)`, `to_dict()`, `to_json()` | output |
-| `plan(features=False, **options)` | engine-neutral cleaning plan |
+| `plan(features=False, *, config=None, **options)` | engine-neutral cleaning plan: `.describe()`, `.review()`, `.impact(source)`, `.skipped`, `.suggestions` |
 | `codegen(engine=None, *, output=..., features=False, validate=True, **options)` | `GeneratedCode` with `.code`, `.save()`, `.validate()`, `.run(df)` |
 | `train(engine=None, **options)` | `ModelResult` |
 | `contract(allow_extra_columns=True)` | `Contract` with `.check()`, `.save()`, `.script()`, `.to_pandera()` |
@@ -451,9 +499,11 @@ Measured on synthetic data with typical problems (missing values, junk text, dup
 
 - **Sample-based decisions.** Fill values, clip bounds, kept categories and contract rules come from the sample. Rare values (much less than 1 in 5,000 rows) may not be seen. Use `n=` for a larger sample.
 - **CSV row counts** need one full scan (fast in DuckDB, but not constant time); Parquet counts come from metadata.
-- **PySpark output** is generated and syntax-checked, but the test suite doesn't execute it.
+- **PySpark output** runs in a separate CI job (Java 21, PySpark 4); the main test matrix only syntax-checks it.
+- **Two-digit years** (`%y`) follow each engine's rule: 00–68 → 2000s in pandas, polars and DuckDB, but 2000–2099 in Spark.
 - **Training** uses scikit-learn in memory; above 2,000,000 rows the training script uses a random subset.
-- **Database sampling** with `ORDER BY random()` (SQLite, MySQL, …) scans the table inside the database and isn't seeded.
+- **Database sampling** with random ordering (SQLite, MySQL, SQL Server, Oracle) scans the table inside the database and isn't seeded. Dialect SQL is tested as text and with sqlglot; only SQLite and DuckDB run in CI.
+- **Engine code paths.** Each engine has its own writer for every step; there is no shared execution layer. The hand-written acceptance tests and the per-engine validation keep them in line.
 - **Personal-data detection** is pattern-based. It finds common formats, not every possible one, and isn't a compliance tool.
 - **Time series** support hourly, daily and weekly periods.
 
