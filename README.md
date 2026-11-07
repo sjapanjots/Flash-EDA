@@ -1,6 +1,9 @@
-<img width="1254" height="1254" alt="FlashEDA" src="https://github.com/user-attachments/assets/a87d02e0-7a18-41e0-844d-a2b9c3d6f769" />
-
-# FlashEDA
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/sjapanjots/Flash-EDA/main/assets/logo/flasheda-logo-dark.svg">
+    <img alt="FlashEDA" src="https://raw.githubusercontent.com/sjapanjots/Flash-EDA/main/assets/logo/flasheda-logo-light.svg" width="460">
+  </picture>
+</p>
 
 [![PyPI](https://img.shields.io/pypi/v/flasheda)](https://pypi.org/project/flasheda/)
 [![Python](https://img.shields.io/pypi/pyversions/flasheda)](https://pypi.org/project/flasheda/)
