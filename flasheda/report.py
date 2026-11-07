@@ -319,6 +319,7 @@ class EDAReport:
         if features:
             from .features import plan_features
             plan = plan_features(self, plan, target=options.get("target"),
+                                 protect=options.get("protect", ()),
                                  **(features if isinstance(features, dict) else {}))
         return plan
 

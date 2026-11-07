@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 from itertools import permutations
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -56,8 +56,9 @@ def plan_features(
     encode: bool = True,
     ratios: bool = True,
     random_state: int = 42,
+    protect: Sequence[str] = (),
 ) -> Plan:
-    """The cleaning plan `base` extended with feature steps."""
+    """The cleaning plan `base` extended with feature steps; `protect`ed columns are left alone."""
     if report.sample is None:
         raise ValueError("This report has no sample attached; re-run flasheda.analyze().")
     target_info = report.target or {}
@@ -65,7 +66,8 @@ def plan_features(
     task = target_info.get("task")
 
     df = base.apply(report.sample)
-    features = [c for c in df.columns if c != target]
+    features = [c for c in df.columns if c != target and c not in set(
+        [protect] if isinstance(protect, str) else protect)]
     taken = set(df.columns)
     plan = Plan()
     drop: Dict[str, str] = {}
