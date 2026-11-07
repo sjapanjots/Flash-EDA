@@ -11,7 +11,9 @@ sample (5,000 rows by default) is transferred:
 
   postgresql   TABLESAMPLE BERNOULLI(p) REPEATABLE(seed), then LIMIT n
   duckdb       USING SAMPLE reservoir(n ROWS) REPEATABLE(seed)
-  others       ORDER BY random() LIMIT n   (full scan in the database)
+  mssql        SELECT TOP n ... ORDER BY NEWID()
+  oracle       ORDER BY DBMS_RANDOM.VALUE FETCH FIRST n ROWS ONLY
+  others       ORDER BY random() / rand() LIMIT n   (full scan in the database)
 
 Passwords never appear in reports or generated code: `display` masks
 them, and generated scripts read the URL from an environment variable.
@@ -55,14 +57,15 @@ class SqlSource:
             # the dialect class quotes names without loading the database driver
             preparer = self._url().get_dialect()().identifier_preparer
             return ".".join(preparer.quote(part) for part in self.table.split("."))
-        return f"({self.query.rstrip().rstrip(';')}) AS flasheda_source"
+        alias = " flasheda_source" if self.dialect == "oracle" else " AS flasheda_source"
+        return f"({self.query.rstrip().rstrip(';')}){alias}"   # Oracle rejects AS on subqueries
 
     # ── data access ─────────────────────────────────────────────────────────
     def count(self) -> int:
         return int(self._scalar(f"SELECT count(*) FROM {self.from_sql()}"))
 
     def columns(self) -> List[str]:
-        return list(self.read(f"SELECT * FROM {self.from_sql()} LIMIT 0").columns)
+        return list(self.read(f"SELECT * FROM {self.from_sql()} WHERE 1 = 0").columns)
 
     def read(self, sql: str) -> pd.DataFrame:
         from sqlalchemy import text
@@ -70,19 +73,26 @@ class SqlSource:
             return pd.read_sql(text(sql), con)
 
     def sample(self, n: int, random_state: int = 42, total: Optional[int] = None) -> pd.DataFrame:
-        src = self.from_sql()
+        if self.dialect == "postgresql" and self.table and total is None:
+            total = self.count()
+        return self.read(self.sample_sql(n, random_state, total)).reset_index(drop=True)
+
+    def sample_sql(self, n: int, random_state: int = 42, total: Optional[int] = None) -> str:
+        """The sampling query for this database's dialect."""
+        src, n, seed = self.from_sql(), int(n), int(random_state)
         dialect = self.dialect
         if dialect == "duckdb":
-            sql = f"SELECT * FROM {src} USING SAMPLE reservoir({int(n)} ROWS) REPEATABLE ({int(random_state)})"
-        elif dialect == "postgresql" and self.table:
-            total = self.count() if total is None else total
+            return f"SELECT * FROM {src} USING SAMPLE reservoir({n} ROWS) REPEATABLE ({seed})"
+        if dialect == "postgresql" and self.table and total is not None:
             pct = min(100.0, 100.0 * 1.5 * n / max(total, 1))
-            sql = (f"SELECT * FROM {src} TABLESAMPLE BERNOULLI ({pct:.6f}) "
-                   f"REPEATABLE ({int(random_state)}) LIMIT {int(n)}")
-        else:
-            rand = "rand()" if dialect in ("mysql", "mariadb") else "random()"
-            sql = f"SELECT * FROM {src} ORDER BY {rand} LIMIT {int(n)}"
-        return self.read(sql).reset_index(drop=True)
+            return (f"SELECT * FROM {src} TABLESAMPLE BERNOULLI ({pct:.6f}) "
+                    f"REPEATABLE ({seed}) LIMIT {n}")
+        if dialect == "mssql":
+            return f"SELECT TOP {n} * FROM {src} ORDER BY NEWID()"
+        if dialect == "oracle":
+            return f"SELECT * FROM {src} ORDER BY DBMS_RANDOM.VALUE FETCH FIRST {n} ROWS ONLY"
+        rand = "rand()" if dialect in ("mysql", "mariadb") else "random()"
+        return f"SELECT * FROM {src} ORDER BY {rand} LIMIT {n}"
 
     def to_parquet(self, path: Union[str, Path], chunksize: int = 100_000) -> Path:
         """Stream the whole table/query to a Parquet file, chunk by chunk."""
