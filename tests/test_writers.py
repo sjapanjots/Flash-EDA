@@ -10,7 +10,11 @@ from flasheda.codegen import (
     ToNumeric, compare_frames, generate,
 )
 
-RUNNABLE = ["pandas", "polars", "duckdb"]
+import importlib.util
+
+# PySpark runs when it's installed (the "pyspark" CI job); elsewhere it's syntax-checked only.
+RUNNABLE = ["pandas", "polars", "duckdb"] + (
+    ["pyspark"] if importlib.util.find_spec("pyspark") is not None else [])
 
 FULL_PLAN = Plan([
     DropColumns(("id",), reason="likely an ID column"),
@@ -144,7 +148,7 @@ def test_pyspark_code_is_valid_python(plan):
     ast.parse(generate(plan, "pyspark", source="data.csv").code)
 
 
-@pytest.mark.parametrize("eng", RUNNABLE + ["pyspark"])
+@pytest.mark.parametrize("eng", sorted(set(RUNNABLE + ["pyspark"])))
 def test_empty_plan(eng):
     code = generate(Plan(), eng, source="x.csv").code
     ast.parse(code)

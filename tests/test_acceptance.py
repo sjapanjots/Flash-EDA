@@ -18,7 +18,7 @@ from flasheda.codegen.steps import (
     MissingIndicator, NormalizeText, OneHot, Plan, Ratio, ToNumeric,
 )
 
-ENGINES = [e for e in ("pandas", "polars", "duckdb")
+ENGINES = [e for e in ("pandas", "polars", "duckdb", "pyspark")
            if e == "pandas" or importlib.util.find_spec(e) is not None]
 
 

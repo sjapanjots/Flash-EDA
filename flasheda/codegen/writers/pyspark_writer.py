@@ -14,6 +14,21 @@ def col(name: str) -> str:
     return "F.col(" + repr("`" + str(name).replace("`", "``") + "`") + ")"
 
 
+# Spark 4 runs in ANSI mode: cast() and to_timestamp() raise on bad input
+# instead of returning null. The try_ functions keep null-on-failure; Spark 3
+# (no try_ functions, ANSI off by default) uses the plain ones.
+HELPERS = '''def to_double(c):
+    """Text to double; unparseable values become null (Spark 3 and 4)."""
+    return c.try_cast("double") if hasattr(c, "try_cast") else c.cast("double")
+
+
+def to_timestamp(c, fmt=None):
+    """Text to timestamp; unparseable values become null (Spark 3 and 4)."""
+    if hasattr(F, "try_to_timestamp"):
+        return F.try_to_timestamp(c, F.lit(fmt)) if fmt else F.try_to_timestamp(c)
+    return F.to_timestamp(c, fmt) if fmt else F.to_timestamp(c)'''
+
+
 class PySparkWriter(Writer):
     """Distributed execution for cluster-scale data."""
 
@@ -21,7 +36,8 @@ class PySparkWriter(Writer):
     install_hint = "pyspark"
 
     def imports(self) -> str:
-        return "from pyspark.sql import DataFrame, SparkSession\nfrom pyspark.sql import functions as F"
+        return ("from pyspark.sql import DataFrame, SparkSession\n"
+                "from pyspark.sql import functions as F\n\n\n" + HELPERS)
 
     def transform(self, plan: Plan) -> str:
         body = []
@@ -51,8 +67,8 @@ class PySparkWriter(Writer):
         if isinstance(step, DateParts):
             ts = c
             if step.is_text:
-                ts = (f"F.to_timestamp({c}, {java_date_format(step.format)!r})" if step.format
-                      else f"F.to_timestamp({c})")
+                ts = (f"to_timestamp({c}, {java_date_format(step.format)!r})" if step.format
+                      else f"to_timestamp({c})")
             spark = {"year": "F.year", "month": "F.month", "day": "F.dayofmonth", "hour": "F.hour"}
             lines = []
             for part, name in zip(step.parts, step.names):
@@ -76,7 +92,7 @@ class PySparkWriter(Writer):
                 text = f'F.regexp_replace({text}, {numeric_noise(step)!r}, "")'
             if step.decimal == ",":
                 text = f'F.regexp_replace({text}, ",", ".")'
-            e = f'F.trim({text}).cast("double")'
+            e = f"to_double(F.trim({text}))"
         elif isinstance(step, NormalizeText):
             e = f"F.lower(F.trim({c}))"
         elif isinstance(step, GroupRare):
