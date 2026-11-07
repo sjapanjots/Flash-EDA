@@ -13,6 +13,8 @@ Strategy, fastest first:
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Iterator, Optional, Union
 
@@ -23,19 +25,43 @@ from .backends import is_available
 from .source import CSV_EXTS, DUCKDB_CSV_TYPES, PARQUET_EXTS, _is_polars_frame, _is_sql, csv_sep
 
 DEFAULT_SAMPLE_SIZE = 5_000
-_sample_size = DEFAULT_SAMPLE_SIZE
+_sample_size = DEFAULT_SAMPLE_SIZE          # process-wide default (set_sample_size)
+_local_size: ContextVar[Optional[int]] = ContextVar("flasheda_sample_size", default=None)
 CHUNK_ROWS = 250_000
 
 
 def get_sample_size() -> int:
-    return _sample_size
+    """The sample size in effect here: a sample_size() block, else the global default."""
+    local = _local_size.get()
+    return _sample_size if local is None else local
 
 
 def set_sample_size(n: int) -> None:
+    """Change the process-wide default. In threads or async code prefer sample_size()."""
     global _sample_size
-    if n < 100:
+    _sample_size = _check(n)
+
+
+@contextmanager
+def sample_size(n: int) -> Iterator[int]:
+    """
+    Use `n` sample rows inside the block only. Context-local: other threads
+    and async tasks keep their own setting.
+
+        with fe.sample_size(20_000):
+            report = fe.analyze("orders.csv")
+    """
+    token = _local_size.set(_check(n))
+    try:
+        yield n
+    finally:
+        _local_size.reset(token)
+
+
+def _check(n: int) -> int:
+    if int(n) < 100:
         raise ValueError("Sample size must be at least 100.")
-    _sample_size = n
+    return int(n)
 
 
 def sample(

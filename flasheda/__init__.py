@@ -14,7 +14,7 @@ from .modeling import train
 from .contract import check
 from .compare import compare
 from .timeseries import timeseries
-from .engine import available_engines, choose_engine, inspect_source, sample, get_sample_size, set_sample_size, sql
+from .engine import available_engines, choose_engine, inspect_source, sample, sample_size, get_sample_size, set_sample_size, sql
 from .analyzers import overview, missing, numeric, categorical, correlation
 from .analyzers import target as target_analyzer
 from .analyzers import text as text_analyzer
@@ -32,6 +32,7 @@ __all__ = [
     "engine",
     "get_sample_size",
     "inspect_source",
+    "sample_size",
     "set_sample_size",
     "sql",
     "timeseries",
