@@ -22,11 +22,13 @@ def test_plan_covers_every_problem(report):
     assert "fill nulls in 'age'" in text                        # numeric median
     assert "fill nulls in 'city'" in text                       # text mode
     assert "log transform 'income'" in text                   # skew
-    assert "clip 'temp.c'" in text                              # outliers
+    assert "clip" not in text                                   # outliers: opt-in only
+    assert any(s.startswith("temp.c:") for s in report.plan().suggestions)
+    assert "clip 'temp.c'" in "\n".join(report.plan(clip_outliers=True).describe())
 
 
 def test_plan_options_switch_steps_off(report):
-    plan = report.plan(fill_nulls=False, clip_outliers=False, drop_duplicates=False)
+    plan = report.plan(fill_nulls=False, drop_duplicates=False)
     text = "\n".join(plan.describe())
     assert "fill" not in text and "clip" not in text and "duplicate" not in text
 

@@ -201,6 +201,7 @@ def outputs(step) -> tuple:
 @dataclass
 class Plan:
     steps: List[Step] = field(default_factory=list)
+    suggestions: List[str] = field(default_factory=list)   # findings left for you to decide
 
     def __len__(self) -> int:
         return len(self.steps)

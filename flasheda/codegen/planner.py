@@ -16,7 +16,8 @@ converted from text gets a numeric median.
   6. rare values     group long-tail categories into "other"
   7. missing flags   add <col>_was_missing where missingness predicts the target
   8. fill nulls      numeric median / text mode
-  9. distributions   log-transform skewed columns, else clip IQR outliers
+  9. distributions   log-transform skewed columns; IQR outliers become a
+                     suggestion (clipped only with clip_outliers=True)
 
 The target column is never transformed, only filtered for nulls.
 """
@@ -55,7 +56,7 @@ def plan_from_report(
     missing_indicators: bool = True,
     fill_nulls: bool = True,
     fix_skew: bool = True,
-    clip_outliers: bool = True,
+    clip_outliers: bool = False,
 ) -> Plan:
     sample = report.sample
     if sample is None:
@@ -153,12 +154,18 @@ def plan_from_report(
                 plan.steps.append(FillNull(col, _number(s["median"]), reason="median of sample"))
             if fix_skew and s.get("skewed") and s["min"] >= 0:
                 plan.steps.append(Log1p(col, reason=f"skewness {s['skewness']}"))
-            elif clip_outliers and s.get("outlier_pct", 0) > OUTLIER_CLIP_PCT and s["iqr"] > 0:
+            elif s.get("outlier_pct", 0) > OUTLIER_CLIP_PCT and s["iqr"] > 0:
                 lower = round(s["q25"] - 1.5 * s["iqr"], 6)
                 upper = round(s["q75"] + 1.5 * s["iqr"], 6)
-                plan.steps.append(
-                    ClipOutliers(col, lower, upper, reason=f"{s['outlier_pct']}% IQR outliers")
-                )
+                if clip_outliers:
+                    plan.steps.append(
+                        ClipOutliers(col, lower, upper, reason=f"{s['outlier_pct']}% IQR outliers")
+                    )
+                else:
+                    # Outliers are often real (big orders, rare events): flag, don't change.
+                    plan.suggestions.append(
+                        f"{col}: {s['outlier_pct']}% of values are IQR outliers outside "
+                        f"[{lower:g}, {upper:g}]; check them, or pass clip_outliers=True to clip")
         elif detectors.is_text(df[col]) and col in cat_stats and "error" not in cat_stats[col]:
             if fill_nulls and has_nulls:
                 plan.steps.append(FillNull(col, cat_stats[col]["mode"], reason="mode of sample"))
