@@ -29,6 +29,8 @@ def render_training_script(
     n_splits: int,
     summary: str,
     relabel: Optional[dict] = None,
+    holdout: float = 0.0,
+    random_state: int = 42,
 ) -> str:
     if time_order:
         cv = "TimeSeriesSplit(n_splits=N_SPLITS)"
@@ -59,6 +61,23 @@ def render_training_script(
         f"from {spec.module} import {spec.cls}",
         f"from sklearn.model_selection import {cv_import}, cross_validate",
     ]
+    if holdout:
+        imports.append("from sklearn.metrics import get_scorer")
+        holdout_block = (
+            "\n    # Untouched holdout: the latest HOLDOUT share of rows, scored once.\n"
+            "    cut = len(X) - int(len(X) * HOLDOUT)\n"
+            "    X_dev, y_dev, X_hold, y_hold = X.iloc[:cut], y.iloc[:cut], X.iloc[cut:], y.iloc[cut:]\n"
+        )
+        holdout_report = (
+            "    try:\n"
+            "        hold = get_scorer(SCORING)(build_model().fit(X_dev, y_dev), X_hold, y_hold)\n"
+            "        print(f\"holdout {metric_label}: {sign * hold:.4f} (latest {len(X_hold):,} rows)\")\n"
+            "    except ValueError as exc:\n"
+            "        print(f\"holdout not scored: {exc}\")\n\n"
+        ).replace("{metric_label}", metric_label)
+    else:
+        holdout_block = "    X_dev, y_dev = X, y\n"
+        holdout_report = ""
     layers = []
     if spec.impute:
         imports.append("from sklearn.impute import SimpleImputer")
@@ -109,7 +128,8 @@ TIME_ORDER = {time_order!r}
 SCORING = {scoring!r}
 N_SPLITS = {n_splits}
 MAX_ROWS = 2_000_000
-RANDOM_STATE = 42
+RANDOM_STATE = {random_state}
+HOLDOUT = {holdout}
 FEATURES = [
 {feature_lines}
 ]
@@ -131,12 +151,12 @@ def build_model():
 
 def main() -> None:
     X, y = load()
-    cv = {cv}
-    scores = cross_validate(build_model(), X, y, scoring=SCORING, cv=cv)["test_score"]
+{holdout_block}    cv = {cv}
+    scores = cross_validate(build_model(), X_dev, y_dev, scoring=SCORING, cv=cv)["test_score"]
     sign = -1 if SCORING.startswith("neg_") else 1
     print(f"{metric_label}: {{sign * scores.mean():.4f}} ± {{scores.std():.4f}} "
-          f"({{N_SPLITS}}-fold CV on {{len(X):,}} rows)")
-
+          f"({{N_SPLITS}}-fold CV on {{len(X_dev):,}} rows)")
+{holdout_report}
     model = build_model().fit(X, y)
     joblib.dump(model, MODEL_PATH)
     print(f"Saved model -> {{MODEL_PATH}}")
