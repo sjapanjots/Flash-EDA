@@ -19,6 +19,7 @@ class EDAReport:
     warnings: list[str] = field(default_factory=list)
     target: Dict[str, Any] = field(default_factory=dict)
     text: Dict[str, Any] = field(default_factory=dict)
+    errors: Dict[str, str] = field(default_factory=dict)    # section -> error, for failed analyses
     source: Optional[str] = None
     sql_source: Any = field(default=None, repr=False)
     recommended_engine: str = "pandas"
@@ -54,15 +55,16 @@ class EDAReport:
             console.print()
 
         miss = self.missing
-        console.print(
-            f"[bold]Missing values[/bold]  overall: [red]{miss['overall_null_pct']}%[/red]  "
-            f"| rows with any null: [red]{miss['rows_with_any_null_pct']}%[/red]"
-        )
-        if miss["critical_columns"]:
-            console.print(f"  Critical (>50% null): [red]{', '.join(miss['critical_columns'])}[/red]")
-        if miss["warn_columns"]:
-            console.print(f"  Warn    (>20% null): [yellow]{', '.join(miss['warn_columns'])}[/yellow]")
-        console.print()
+        if miss:
+            console.print(
+                f"[bold]Missing values[/bold]  overall: [red]{miss.get('overall_null_pct', 0)}%[/red]  "
+                f"| rows with any null: [red]{miss.get('rows_with_any_null_pct', 0)}%[/red]"
+            )
+            if miss.get("critical_columns"):
+                console.print(f"  Critical (>50% null): [red]{', '.join(miss['critical_columns'])}[/red]")
+            if miss.get("warn_columns"):
+                console.print(f"  Warn    (>20% null): [yellow]{', '.join(miss['warn_columns'])}[/yellow]")
+            console.print()
 
         num_cols = self.numeric.get("numeric_col_names", [])
         if num_cols:
@@ -388,6 +390,7 @@ class EDAReport:
             "warnings":         self.warnings,
             "target":           self.target,
             "text":             self.text,
+            "errors":           self.errors,
             "source":           self.source or (self.sql_source.display if self.sql_source else None),
             "recommended_engine": self.recommended_engine,
         }

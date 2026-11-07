@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Union, Optional
+from typing import Dict, Union, Optional
 
 import pandas as pd
 
@@ -48,6 +48,7 @@ def analyze(
     pdf_path: str = "flasheda_report.pdf",
     engine: Optional[str] = None,
     target: Optional[str] = None,
+    strict: bool = False,
 ) -> EDAReport:
     """
     Analyse a fixed-size sample of `source`: a DataFrame, a CSV/TSV or Parquet
@@ -55,6 +56,10 @@ def analyze(
 
     Nothing is written to disk unless you ask: pass save_pdf=True (to
     pdf_path) or call report.save_pdf() / report.save_html().
+
+    Each section is computed independently. If one fails, the rest of the
+    report is still produced, the failure is listed in `report.errors` and in
+    `report.warnings`; pass strict=True to raise instead.
 
     `target` names the column you want to predict; it adds task detection,
     class balance, per-feature predictive power and leakage checks.
@@ -83,6 +88,7 @@ def analyze(
         tasks["target"] = lambda: target_analyzer.analyze(sampled, target, random_state)
 
     results: dict = {}
+    errors: Dict[str, str] = {}
     with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
         future_map = {pool.submit(fn): name for name, fn in tasks.items()}
         for future in as_completed(future_map):
@@ -90,9 +96,15 @@ def analyze(
             try:
                 results[name] = future.result()
             except Exception as exc:
-                results[name] = {"error": str(exc)}
+                if strict or name == "target":
+                    raise RuntimeError(f"The {name} analysis failed: {type(exc).__name__}: {exc}") from exc
+                errors[name] = f"{type(exc).__name__}: {exc}"
+                results[name] = {}
 
-    warnings: list[str] = []
+    warnings: list[str] = [
+        f"The {name} analysis failed and is missing from this report ({msg})"
+        for name, msg in sorted(errors.items())
+    ]
     miss = results.get("missing", {})
     if miss.get("critical_columns"):
         warnings.append(f"Columns with >50% missing: {', '.join(miss['critical_columns'])}")
@@ -115,8 +127,6 @@ def analyze(
         warnings.append(f"Possible personal data in {col!r}: {kinds} of non-empty values")
 
     tgt = results.get("target", {})
-    if "error" in tgt:
-        raise RuntimeError(f"Target analysis failed: {tgt['error']}")
     if tgt.get("leakage_columns"):
         cols = ", ".join(str(l["column"]) for l in tgt["leakage_columns"])
         warnings.append(f"Possible target leakage: {cols}")
@@ -142,6 +152,7 @@ def analyze(
         original_shape=original_shape,
         warnings=warnings,
         target=tgt,
+        errors=errors,
         source=str(info.path) if info.path else None,
         sql_source=info.sql,
         # database sources are read with pandas (or exported with .to_parquet())
