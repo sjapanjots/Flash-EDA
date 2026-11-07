@@ -217,14 +217,14 @@ def _handle_rare_classes(data: pd.DataFrame, target: str, task: str, policy: str
                 + ("; for multiclass targets, rare_classes='drop' or 'merge' also works." if task == "multiclass" else "."))
         if policy == "drop":
             data = data[~labels.isin(rare.index)]
-            relabel = {"drop": sorted(rare.index)}
+            relabel = {"drop": sorted(str(v) for v in rare.index)}
             notes.append(f"Dropped rows of rare target classes: {listing}.")
         else:
             other = "other"
             while other in counts.index:
                 other = f"_{other}_"
             data = data.assign(**{target: labels.where(~labels.isin(rare.index), other)})
-            relabel = {"merge": sorted(rare.index), "into": other}
+            relabel = {"merge": sorted(str(v) for v in rare.index), "into": other}
             notes.append(f"Merged rare target classes into {other!r}: {listing}.")
             if (data[target] == other).sum() < MIN_CLASS_ROWS:
                 raise ValueError(f"Even merged, the rare classes have fewer than {MIN_CLASS_ROWS} rows.")
