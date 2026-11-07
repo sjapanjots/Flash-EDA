@@ -64,7 +64,10 @@ class PolarsWriter(Writer):
             e = current(step.column)
             out = step.column
             if isinstance(step, DateParts):
-                ts = f"{e}.str.to_datetime(strict=False)" if step.is_text else e
+                ts = e
+                if step.is_text:
+                    fmt = f"{step.format!r}, " if step.format else ""
+                    ts = f"{e}.str.to_datetime({fmt}strict=False)"
                 for part, name in zip(step.parts, step.names):
                     fn = {"year": "year", "month": "month", "day": "day",
                           "dayofweek": "weekday", "hour": "hour"}[part]

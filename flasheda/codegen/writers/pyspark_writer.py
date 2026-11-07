@@ -5,7 +5,7 @@ from typing import Optional
 from ..steps import (
     ClipOutliers, DateParts, DropColumns, DropDuplicates, DropNullRows, FillNull,
     FrequencyEncode, GroupRare, Log1p, MissingIndicator, NormalizeText, OneHot, Plan, Ratio,
-    TextStats, ToNumeric, numeric_noise,
+    TextStats, ToNumeric, java_date_format, numeric_noise,
 )
 from .base import Writer, source_format
 
@@ -49,7 +49,10 @@ class PySparkWriter(Writer):
         if isinstance(step, MissingIndicator):
             return f"df = df.withColumn({step.name!r}, {c}.isNull())"
         if isinstance(step, DateParts):
-            ts = f"F.to_timestamp({c})" if step.is_text else c
+            ts = c
+            if step.is_text:
+                ts = (f"F.to_timestamp({c}, {java_date_format(step.format)!r})" if step.format
+                      else f"F.to_timestamp({c})")
             spark = {"year": "F.year", "month": "F.month", "day": "F.dayofmonth", "hour": "F.hour"}
             lines = []
             for part, name in zip(step.parts, step.names):

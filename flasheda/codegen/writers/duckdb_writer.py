@@ -76,7 +76,10 @@ class DuckDBWriter(Writer):
                 continue
             col = current(step.column)
             if isinstance(step, DateParts):
-                ts = f"TRY_CAST({col} AS TIMESTAMP)" if step.is_text else col
+                ts = col
+                if step.is_text:
+                    ts = (f"try_strptime({col}, {literal(step.format)})" if step.format
+                          else f"TRY_CAST({col} AS TIMESTAMP)")
                 for part, name in zip(step.parts, step.names):
                     fn = {"year": "year", "month": "month", "day": "day",
                           "dayofweek": "isodow", "hour": "hour"}[part]

@@ -57,8 +57,18 @@ def plan_features(
     ratios: bool = True,
     random_state: int = 42,
     protect: Sequence[str] = (),
+    date_formats: Optional[Dict[str, str]] = None,
 ) -> Plan:
-    """The cleaning plan `base` extended with feature steps; `protect`ed columns are left alone."""
+    """
+    The cleaning plan `base` extended with feature steps; `protect`ed columns
+    are left alone. `date_formats` maps columns to strftime patterns
+    ({"day": "%d/%m/%Y"}) for dates that aren't ISO and can't be read safely,
+    such as day/month vs month/day.
+    """
+    date_formats = dict(date_formats or {})
+    unknown = [c for c in date_formats if c not in report.sample.columns]
+    if unknown:
+        raise KeyError(f"date_formats names unknown column(s): {unknown}")
     if report.sample is None:
         raise ValueError("This report has no sample attached; re-run flasheda.analyze().")
     target_info = report.target or {}
@@ -89,15 +99,29 @@ def plan_features(
     if dates:
         for col in features:
             s = df[col]
+            fmt = ""
             if pd.api.types.is_datetime64_any_dtype(s):
                 is_text, ts = False, s
+            elif col in date_formats:
+                is_text, fmt = True, date_formats[col]
+                ts = pd.to_datetime(s, errors="coerce", format=fmt)
             elif _is_iso_text(s):
                 is_text, ts = True, pd.to_datetime(s, errors="coerce", format="ISO8601")
             else:
-                continue
+                found = detectors.date_format(s)
+                if found is None:
+                    continue
+                if found.ambiguous:
+                    options = ", ".join(repr(f) for f in (found.format,) + found.alternatives)
+                    plan.suggestions.append(
+                        f"{col}: dates like {s.dropna().iloc[0]!r} fit several formats ({options}); "
+                        f"pick one with date_formats={{{col!r}: ...}} to turn them into date parts")
+                    continue
+                is_text, fmt = True, found.format
+                ts = pd.to_datetime(s, errors="coerce", format=fmt)
             parts = [p for p in DATE_PARTS if p != "hour" or (ts.dt.hour.fillna(0) != 0).mean() > 0.01]
             names = tuple(fresh(f"{col}_{p}") for p in parts)
-            plan.steps.append(DateParts(col, tuple(parts), names, is_text,
+            plan.steps.append(DateParts(col, tuple(parts), names, is_text, fmt,
                                         reason="calendar parts are usable by models; raw dates are not"))
             drop[col] = "replaced by date parts"
             date_cols.append(col)
@@ -167,7 +191,7 @@ def plan_features(
     if drop:
         plan.steps.append(DropColumns(tuple(drop), reason="; ".join(f"{c}: {r}" for c, r in drop.items())))
     return Plan(list(before) + ratio_steps + list(after) + plan.steps,
-                list(base.suggestions), list(base.skipped))
+                list(base.suggestions) + plan.suggestions, list(base.skipped))
 
 
 def time_order_columns(plan: Plan, time_columns: List[str]) -> List[str]:
