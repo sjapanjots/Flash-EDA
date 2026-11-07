@@ -44,7 +44,8 @@ def same(got: pd.DataFrame, expected: dict):
 def test_row_steps(engine):
     df = pd.DataFrame({"a": [1, 1, 2, 3], "b": ["x", "x", "y", None], "junk": [0, 0, 0, 0]})
     plan = Plan([DropColumns(("junk",)), DropDuplicates(), DropNullRows("b")])
-    same(run(plan, df, engine), {"a": [1, 2], "b": ["x", "y"]})
+    out = run(plan, df, engine).sort_values("a").reset_index(drop=True)   # engines may reorder rows
+    same(out, {"a": [1, 2], "b": ["x", "y"]})
 
 
 @pytest.mark.parametrize("engine", ENGINES)
