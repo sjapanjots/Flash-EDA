@@ -131,6 +131,49 @@ def number_format(s: pd.Series, decimal: Optional[str] = None) -> Optional[Numbe
     return None
 
 
+_DATES = ("%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%m-%d-%Y", "%d.%m.%Y", "%Y/%m/%d",
+          "%d/%m/%y", "%m/%d/%y", "%d-%m-%y", "%m-%d-%y", "%y-%m-%d",
+          "%d %b %Y", "%b %d, %Y", "%d-%b-%Y")
+DATE_FORMATS = tuple(f + t for f in _DATES for t in ("", " %H:%M", " %H:%M:%S"))
+
+
+@dataclass(frozen=True)
+class DateFormat:
+    format: str                       # strftime pattern, e.g. "%d/%m/%Y"
+    ratio: float = 1.0
+    alternatives: tuple = ()          # other formats that fit but read the dates differently
+
+    @property
+    def ambiguous(self) -> bool:
+        return bool(self.alternatives)
+
+
+def date_format(s: pd.Series, min_ratio: float = 0.95) -> Optional[DateFormat]:
+    """
+    The format of non-ISO date text ("07/11/2026", "7-Nov-2026", "07-11-26").
+    `ambiguous` when several formats fit and read the dates differently,
+    e.g. day/month vs month/day when no day is above 12: then nothing is
+    guessed and you pick with date_formats={"col": "%d/%m/%Y"}.
+    """
+    if not is_text(s):
+        return None
+    values = s.dropna().astype(str).str.strip(" ").head(500)
+    values = values[values != ""]
+    if len(values) < MISSING_MIN_ROWS or not values.str.contains(r"\d").all():
+        return None
+    fits = []
+    for fmt in DATE_FORMATS:
+        parsed = pd.to_datetime(values, format=fmt, errors="coerce")
+        ratio = float(parsed.notna().mean())
+        if ratio >= min_ratio:
+            fits.append((fmt, ratio, parsed))
+    if not fits:
+        return None
+    fmt, ratio, parsed = fits[0]
+    different = tuple(f for f, _, p in fits[1:] if not p.equals(parsed))
+    return DateFormat(fmt, ratio, different)
+
+
 def char_class(chars: str) -> str:
     """A regex character class matching any of `chars` (works in Python, Rust, RE2 and Java)."""
     return "[" + "".join("\\" + c if c in "\\]^-[" else c for c in chars) + "]"

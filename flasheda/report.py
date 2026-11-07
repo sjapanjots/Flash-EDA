@@ -312,14 +312,18 @@ class EDAReport:
 
         features : True (or a dict of options for flasheda.features.plan_features)
                    to append model-ready features: date parts, encodings, ratios
-        options  : passed to the cleaning planner, e.g. group_rare=False
+        options  : passed to the cleaning planner, e.g. group_rare=False;
+                   date_formats={"col": "%d/%m/%Y"} sets date formats for features
         """
         from .codegen import plan_from_report
+        date_formats = options.pop("date_formats", None)
+        if date_formats and not features:
+            raise ValueError("date_formats is used for date features: pass features=True too.")
         plan = plan_from_report(self, **options)
         if features:
             from .features import plan_features
             plan = plan_features(self, plan, target=options.get("target"),
-                                 protect=options.get("protect", ()),
+                                 protect=options.get("protect", ()), date_formats=date_formats,
                                  **(features if isinstance(features, dict) else {}))
         return plan
 

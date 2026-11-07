@@ -64,7 +64,7 @@ class PandasWriter(Writer):
         if isinstance(step, Log1p):
             return f"{c} = np.sign({c}) * np.log1p(np.abs({c}))"
         if isinstance(step, DateParts):
-            src = f'pd.to_datetime({c}, errors="coerce", format="ISO8601")' if step.is_text else c
+            src = f'pd.to_datetime({c}, errors="coerce", format={step.format or "ISO8601"!r})' if step.is_text else c
             lines = [f"ts = {src}"]
             for part, name in zip(step.parts, step.names):
                 value = "ts.dt.dayofweek + 1" if part == "dayofweek" else f"ts.dt.{part}"

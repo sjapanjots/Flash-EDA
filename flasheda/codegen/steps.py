@@ -132,13 +132,15 @@ class DateParts:
     """
     Add `<column>_<part>` columns from a date/timestamp column.
     dayofweek is ISO: Monday = 1 ... Sunday = 7. Unparseable values give null.
-    `is_text` says the column holds ISO-8601 text that must be parsed first.
+    `is_text` says the column holds text that must be parsed first: ISO-8601,
+    or `format` (a strftime pattern such as "%d/%m/%Y") when one is set.
     """
 
     column: str
     parts: tuple
     names: tuple
     is_text: bool = True
+    format: str = ""
     reason: str = ""
     confidence: float = field(default=1.0, compare=False)
 
@@ -198,6 +200,24 @@ Step = Union[
     ToNumeric, NormalizeText, GroupRare, MissingIndicator, FillNull, ClipOutliers, Log1p,
     DateParts, Ratio, OneHot, FrequencyEncode, TextStats,
 ]
+
+
+JAVA_DATE = {"%Y": "yyyy", "%y": "yy", "%m": "M", "%d": "d", "%H": "H", "%M": "m",
+             "%S": "s", "%b": "MMM"}
+
+
+def java_date_format(fmt: str) -> str:
+    """strftime pattern → Spark datetime pattern."""
+    out, i = "", 0
+    while i < len(fmt):
+        token = fmt[i:i + 2]
+        if token in JAVA_DATE:
+            out, i = out + JAVA_DATE[token], i + 2
+        elif fmt[i].isalpha():
+            out, i = out + "'" + fmt[i] + "'", i + 1
+        else:
+            out, i = out + fmt[i], i + 1
+    return out
 
 
 def numeric_noise(step: "ToNumeric") -> str:
@@ -329,7 +349,7 @@ class Plan:
             elif isinstance(step, DateParts):
                 ts = out[step.column]
                 if step.is_text:
-                    ts = pd.to_datetime(ts, errors="coerce", format="ISO8601")
+                    ts = pd.to_datetime(ts, errors="coerce", format=step.format or "ISO8601")
                 for part, name in zip(step.parts, step.names):
                     value = ts.dt.dayofweek + 1 if part == "dayofweek" else getattr(ts.dt, part)
                     out[name] = value.astype("float64")
@@ -376,7 +396,8 @@ def _label(step: Step) -> str:
     if isinstance(step, Log1p):
         return f"log transform {step.column!r}"
     if isinstance(step, DateParts):
-        return f"add {', '.join(step.parts)} from {step.column!r}"
+        fmt = f" (format {step.format!r})" if step.format else ""
+        return f"add {', '.join(step.parts)} from {step.column!r}{fmt}"
     if isinstance(step, Ratio):
         return f"add {step.name!r} = {step.numerator!r} / {step.denominator!r}"
     if isinstance(step, OneHot):
