@@ -114,7 +114,7 @@ def test_error_metrics_rank_lowest_error_first():
 
 
 def test_unknown_model_and_missing_target(report, shop):
-    with pytest.raises(ValueError, match="No models match"):
+    with pytest.raises(ValueError, match="Unknown model"):
         report.train(models=["xgboost"])
     with pytest.raises(ValueError, match="needs a target"):
         fe.analyze(shop, save_pdf=False).train()

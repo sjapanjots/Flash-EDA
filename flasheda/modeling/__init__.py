@@ -27,7 +27,7 @@ import numpy as np
 import pandas as pd
 
 from .script import render_training_script
-from .specs import ModelSpec, candidates, scoring_for
+from .specs import ModelSpec, candidates, scoring_for, with_seed
 
 __all__ = ["ModelResult", "ModelSpec", "train", "train_from_report"]
 
@@ -48,6 +48,7 @@ class ModelResult:
     report: Any = field(default=None, repr=False)
     warnings: List[str] = field(default_factory=list)
     holdout_rows: int = 0           # latest rows kept out of model selection (time-based only)
+    beats_baseline: bool = True     # best model is clearly better than the baseline in CV
 
     @property
     def lower_is_better(self) -> bool:
@@ -97,7 +98,7 @@ def train(
     *,
     output: str = "features.parquet",
     model_path: str = "model.joblib",
-    models: Optional[Sequence[str]] = None,
+    models: Optional[Sequence[Union[str, ModelSpec]]] = None,
     n_splits: int = 5,
     n: Optional[int] = None,
     random_state: int = 42,
@@ -112,7 +113,8 @@ def train(
 
     engine      : engine for the prep script (default: by size)
     output      : Parquet file the prep script writes and the training script reads
-    models      : subset of model names (default: all candidates for the task)
+    models      : model names and/or your own ModelSpec objects (default: all
+                  built-in candidates); the baseline is always compared too
     rare_classes: what to do with target classes too rare to evaluate (fewer
                   than 2 sampled rows): "error" (default), "drop" those rows,
                   or "merge" them into "other" (multiclass only)
@@ -135,7 +137,7 @@ def train_from_report(
     *,
     output: str = "features.parquet",
     model_path: str = "model.joblib",
-    models: Optional[Sequence[str]] = None,
+    models: Optional[Sequence[Union[str, ModelSpec]]] = None,
     n_splits: int = 5,
     validate: bool = True,
     rare_classes: str = "error",
@@ -180,9 +182,7 @@ def train_from_report(
         y = data[target].astype(float)
 
     scoring, label = scoring_for(t)
-    specs = [s for s in candidates(task, random_state) if models is None or s.name in models]
-    if not specs:
-        raise ValueError(f"No models match {models!r}. Choose from {[s.name for s in candidates(task)]}.")
+    specs = _choose_models(task, models, random_state)
 
     # Time-based: the latest rows are an untouched holdout, scored once at the end.
     n_hold = int(len(X) * holdout) if time_order else 0
@@ -204,6 +204,11 @@ def train_from_report(
     # scikit-learn scores are "higher is better" (error metrics are negated),
     # so sort descending, then flip error metrics back to positive for display.
     board = pd.DataFrame(rows).sort_values("score", ascending=False).reset_index(drop=True)
+    beats = _beats_baseline(board, n_splits)
+    if not beats:
+        notes.append("No model is clearly better than the baseline (a constant prediction) in "
+                      "cross-validation: the features may carry little signal for this target. "
+                      "Check the leakage and feature-power sections before trusting the model.")
     if scoring.startswith("neg_"):
         board["score"] = -board["score"]
         if n_hold:
@@ -227,7 +232,38 @@ def train_from_report(
         _validate_training_script(code, data, features, target)
 
     return ModelResult(task, target, label, scoring, board, best.name, features, positive,
-                       time_order, prep, code, report, notes, n_hold)
+                       time_order, prep, code, report, notes, n_hold, beats)
+
+
+def _choose_models(task: str, models, random_state: int) -> List[ModelSpec]:
+    """Built-in names and custom ModelSpecs, seeded; the baseline is always included."""
+    built_in = {s.name: s for s in candidates(task, random_state)}
+    if models is None:
+        return list(built_in.values())
+    specs: List[ModelSpec] = []
+    for m in models:
+        if isinstance(m, ModelSpec):
+            specs.append(with_seed(m, random_state))
+        elif m in built_in:
+            specs.append(built_in[m])
+        else:
+            raise ValueError(f"Unknown model {m!r}. Choose from {list(built_in)} or pass a ModelSpec.")
+    names = [s.name for s in specs]
+    if len(set(names)) != len(names):
+        raise ValueError(f"Model names must be unique: {names}")
+    if "baseline" not in names:
+        specs.insert(0, built_in["baseline"])
+    return specs
+
+
+def _beats_baseline(board: pd.DataFrame, n_splits: int) -> bool:
+    """Best model's CV score above the baseline's by more than its standard error.
+    Scores are still "higher is better" here (error metrics negated)."""
+    if (board["model"] == "baseline").sum() != 1 or len(board) < 2:
+        return True
+    base = board.loc[board["model"] == "baseline", "score"].iloc[0]
+    best = board[board["model"] != "baseline"].iloc[0]
+    return bool(best["score"] - base > best["std"] / np.sqrt(max(n_splits, 1)))
 
 
 MIN_HOLDOUT_ROWS = 30       # fewer holdout rows give a meaningless score
