@@ -15,6 +15,7 @@ from typing import Any, List, Optional, Union
 import pandas as pd
 
 from .planner import plan_from_report
+from .registry import REGISTRY, StepInfo, info, register
 from .steps import (
     ClipOutliers, DateParts, DropColumns, DropDuplicates, DropNullRows, FillNull,
     FrequencyEncode, GroupRare, Log1p, MissingIndicator, NormalizeText, OneHot, Plan, Ratio,
@@ -63,11 +64,18 @@ def generate(
     """`sql` is a flasheda.sql() source to read from instead of a file."""
     if columns is None and sample is not None:
         columns = [str(c) for c in sample.columns]
+    unsupported = sorted({type(s).__name__ for s in plan.steps if engine not in info(s).engines})
+    if unsupported:
+        raise ValueError(f"The {engine} writer can't generate: {', '.join(unsupported)}.")
     code = get_writer(engine).render(plan, source, output, columns, sql=sql)
     return GeneratedCode(engine, code, plan, sample)
 
 
 __all__ = [
+    "REGISTRY",
+    "StepInfo",
+    "info",
+    "register",
     "ClipOutliers",
     "DateParts",
     "DropColumns",

@@ -14,7 +14,7 @@ that the generated code for every engine is correct.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Union
+from typing import List, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -26,11 +26,13 @@ import pandas as pd
 class DropColumns:
     columns: tuple
     reason: str = ""
+    confidence: float = field(default=1.0, compare=False)
 
 
 @dataclass(frozen=True)
 class DropDuplicates:
     reason: str = ""
+    confidence: float = field(default=1.0, compare=False)
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,7 @@ class DropNullRows:
 
     column: str
     reason: str = ""
+    confidence: float = field(default=1.0, compare=False)
 
 
 # ── Column-level steps ──────────────────────────────────────────────────────
@@ -49,6 +52,7 @@ class ToNumeric:
 
     column: str
     reason: str = ""
+    confidence: float = field(default=1.0, compare=False)
 
 
 @dataclass(frozen=True)
@@ -57,6 +61,7 @@ class NormalizeText:
 
     column: str
     reason: str = ""
+    confidence: float = field(default=1.0, compare=False)
 
 
 @dataclass(frozen=True)
@@ -67,6 +72,7 @@ class GroupRare:
     keep: tuple
     other: str = "other"
     reason: str = ""
+    confidence: float = field(default=1.0, compare=False)
 
 
 @dataclass(frozen=True)
@@ -76,6 +82,7 @@ class MissingIndicator:
     column: str
     name: str
     reason: str = ""
+    confidence: float = field(default=1.0, compare=False)
 
 
 @dataclass(frozen=True)
@@ -83,6 +90,7 @@ class FillNull:
     column: str
     value: Union[int, float, str]
     reason: str = ""
+    confidence: float = field(default=1.0, compare=False)
 
 
 @dataclass(frozen=True)
@@ -91,6 +99,7 @@ class ClipOutliers:
     lower: float
     upper: float
     reason: str = ""
+    confidence: float = field(default=1.0, compare=False)
 
 
 @dataclass(frozen=True)
@@ -103,6 +112,7 @@ class Log1p:
 
     column: str
     reason: str = ""
+    confidence: float = field(default=1.0, compare=False)
 
 
 # ── Feature steps ───────────────────────────────────────────────────────────
@@ -123,6 +133,7 @@ class DateParts:
     names: tuple
     is_text: bool = True
     reason: str = ""
+    confidence: float = field(default=1.0, compare=False)
 
 
 @dataclass(frozen=True)
@@ -133,6 +144,7 @@ class Ratio:
     denominator: str
     name: str
     reason: str = ""
+    confidence: float = field(default=1.0, compare=False)
 
 
 @dataclass(frozen=True)
@@ -143,6 +155,7 @@ class OneHot:
     values: tuple
     names: tuple
     reason: str = ""
+    confidence: float = field(default=1.0, compare=False)
 
 
 @dataclass(frozen=True)
@@ -153,6 +166,7 @@ class FrequencyEncode:
     mapping: tuple           # ((value, share), ...)
     default: float = 0.0
     reason: str = ""
+    confidence: float = field(default=1.0, compare=False)
 
 
 @dataclass(frozen=True)
@@ -163,6 +177,7 @@ class TextStats:
     length_name: str
     words_name: str
     reason: str = ""
+    confidence: float = field(default=1.0, compare=False)
 
 
 ROW_STEPS = (DropColumns, DropDuplicates, DropNullRows)
@@ -202,6 +217,7 @@ def outputs(step) -> tuple:
 class Plan:
     steps: List[Step] = field(default_factory=list)
     suggestions: List[str] = field(default_factory=list)   # findings left for you to decide
+    skipped: List[Tuple[Step, str]] = field(default_factory=list)  # (step, why it needs approval)
 
     def __len__(self) -> int:
         return len(self.steps)
@@ -236,6 +252,25 @@ class Plan:
             yield "row", step
         if pending:
             yield "columns", pending
+
+    def review(self) -> pd.DataFrame:
+        """
+        Every planned and skipped step with its risk, reversibility and
+        confidence. Skipped steps need approval: re-plan with approve="all".
+        """
+        from .registry import info
+
+        rows = [(s, "applied", "") for s in self.steps] + [(s, "skipped", why) for s, why in self.skipped]
+        return pd.DataFrame([{
+            "step": _label(s),
+            "risk": info(s).risk,
+            "reversible": info(s).reversible,
+            "effect": info(s).effect,
+            "confidence": s.confidence,
+            "status": status,
+            "why": why or s.reason,
+        } for s, status, why in rows], columns=["step", "risk", "reversible", "effect",
+                                                 "confidence", "status", "why"])
 
     def describe(self) -> List[str]:
         return [f"{_label(s)} — {s.reason}" if s.reason else _label(s) for s in self.steps]
