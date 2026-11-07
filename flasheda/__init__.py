@@ -9,6 +9,7 @@ import pandas as pd
 
 from . import codegen, engine
 from .clean import clean
+from .config import CleanConfig
 from .modeling import train
 from .contract import check
 from .compare import compare
@@ -21,6 +22,7 @@ from .report import EDAReport
 
 __version__ = "0.6.0"
 __all__ = [
+    "CleanConfig",
     "analyze",
     "available_engines",
     "check",

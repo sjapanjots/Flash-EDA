@@ -37,7 +37,8 @@ def clean(
                    row drops and missing-value flags
     engine       : "pandas" | "polars" | "duckdb" | "pyspark" (default: by size)
     features     : also add model-ready features (date parts, encodings, ratios)
-    plan_options : switch planner phases off, e.g. group_rare=False
+    plan_options : switch planner phases off, e.g. group_rare=False, or pass
+                   config=flasheda.CleanConfig(...) with every choice at once
     """
     from .. import analyze  # local import: flasheda/__init__ imports this package
 
