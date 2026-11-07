@@ -272,6 +272,11 @@ class Plan:
         } for s, status, why in rows], columns=["step", "risk", "reversible", "effect",
                                                  "confidence", "status", "why"])
 
+    def impact(self, source):
+        """Dry run on the full data (file path or DataFrame): see flasheda.codegen.impact."""
+        from .impact import impact
+        return impact(self, source)
+
     def describe(self) -> List[str]:
         return [f"{_label(s)} — {s.reason}" if s.reason else _label(s) for s in self.steps]
 
