@@ -55,7 +55,7 @@ if TYPE_CHECKING:
 
 OUTLIER_CLIP_PCT = 5.0
 LEAK_HOLDOUT_SHARE = 0.3       # predictive power is scored on 30% of the sample
-APPROVE = ("confident", "all", "safe")
+from ..config import APPROVE  # noqa: E402  (one list of policies for planner and config)
 
 
 def plan_from_report(

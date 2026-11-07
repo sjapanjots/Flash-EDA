@@ -306,7 +306,8 @@ class EDAReport:
     # Code generation
     # ──────────────────────────────────────────────────────────────────────
 
-    def plan(self, features: Union[bool, Dict[str, Any]] = False, **options):
+    def plan(self, features: Union[bool, Dict[str, Any]] = False, *,
+             config: Optional["CleanConfig"] = None, **options):
         """
         Engine-neutral cleaning plan built from this report's findings.
 
@@ -314,7 +315,11 @@ class EDAReport:
                    to append model-ready features: date parts, encodings, ratios
         options  : passed to the cleaning planner, e.g. group_rare=False;
                    date_formats={"col": "%d/%m/%Y"} sets date formats for features
+        config   : a flasheda.CleanConfig with all of these; keyword options win over it
         """
+        if config is not None:
+            options = {**config.plan_options(), **options}
+            features = features or config.features
         from .codegen import plan_from_report
         date_formats = options.pop("date_formats", None)
         if date_formats and not features:
