@@ -164,7 +164,8 @@ def plan_features(
 
     if drop:
         plan.steps.append(DropColumns(tuple(drop), reason="; ".join(f"{c}: {r}" for c, r in drop.items())))
-    return Plan(list(before) + ratio_steps + list(after) + plan.steps, list(base.suggestions))
+    return Plan(list(before) + ratio_steps + list(after) + plan.steps,
+                list(base.suggestions), list(base.skipped))
 
 
 def time_order_columns(plan: Plan, time_columns: List[str]) -> List[str]:

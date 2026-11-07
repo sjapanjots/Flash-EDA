@@ -20,16 +20,29 @@ converted from text gets a numeric median.
                      suggestion (clipped only with clip_outliers=True)
 
 The target column is never transformed, only filtered for nulls.
+
+Every step gets a risk level (flasheda.codegen.registry) and a confidence:
+how sure the sample is that the full data would lead to the same decision.
+`approve` decides which steps are applied without asking:
+
+    "confident"  (default) all but high-risk steps with confidence < 0.95
+    "all"        every step
+    "safe"       only low-risk steps
+
+Skipped steps are kept in plan.skipped and listed in the generated code;
+see them all with plan.review().
 """
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, Dict, Optional
 
 import pandas as pd
 
 from ..analyzers import categorical, missing, numeric
 from ..clean import detectors
+from .registry import CONFIDENT, info, margin_confidence, proportion_confidence
 from .steps import (
     ClipOutliers, DropColumns, DropDuplicates, DropNullRows, FillNull, GroupRare, Log1p,
     MissingIndicator, NormalizeText, Plan, ToNumeric,
@@ -39,6 +52,8 @@ if TYPE_CHECKING:
     from ..report import EDAReport
 
 OUTLIER_CLIP_PCT = 5.0
+LEAK_HOLDOUT_SHARE = 0.3       # predictive power is scored on 30% of the sample
+APPROVE = ("confident", "all", "safe")
 
 
 def plan_from_report(
@@ -57,7 +72,10 @@ def plan_from_report(
     fill_nulls: bool = True,
     fix_skew: bool = True,
     clip_outliers: bool = False,
+    approve: str = "confident",
 ) -> Plan:
+    if approve not in APPROVE:
+        raise ValueError(f"approve must be one of {APPROVE}")
     sample = report.sample
     if sample is None:
         raise ValueError("This report has no sample attached; re-run flasheda.analyze().")
@@ -70,9 +88,23 @@ def plan_from_report(
 
     plan = Plan()
     current = lambda: plan.apply(sample)  # noqa: E731 — the sample as cleaned so far
+    n = len(sample)
+
+    def add(step) -> None:
+        meta = info(step)
+        if (approve == "all" or meta.risk == "low"
+                or (approve == "confident" and (meta.risk != "high" or step.confidence >= CONFIDENT))):
+            plan.steps.append(step)
+        elif approve == "confident":
+            plan.skipped.append((step, f"{meta.risk} risk ({meta.effect}) and the sample isn't sure: "
+                                       f"confidence {step.confidence:.2f} < {CONFIDENT}"))
+        else:
+            plan.skipped.append((step, f"{meta.risk} risk ({meta.effect}); approve='safe' "
+                                       "applies only low-risk steps"))
 
     # 1 ── drop columns ─────────────────────────────────────────────────────
     drop: Dict[str, str] = {}
+    sure: Dict[str, float] = {}          # confidence per dropped column (default 1.0)
     if drop_ids:
         for col in report.categorical.get("likely_id_columns", []):
             drop.setdefault(col, "likely an ID column")
@@ -81,22 +113,30 @@ def plan_from_report(
                 drop.setdefault(col, "numeric ID column")
     if drop_missing:
         for col in report.missing.get("critical_columns", []):
-            drop.setdefault(col, "more than 50% missing")
+            if drop.setdefault(col, "more than 50% missing") == "more than 50% missing":
+                sure[col] = proportion_confidence(float(sample[col].isna().mean()), 0.5, n)
     for col, s in report.numeric.get("columns", {}).items():
         if s.get("zero_variance"):
             drop.setdefault(col, "constant value")
     if drop_leaks:
         for leak in target_info.get("leakage_columns", []):
-            drop.setdefault(leak["column"], f"possible target leakage (power {leak['score']})")
+            col = leak["column"]
+            if col not in drop:
+                drop[col] = f"possible target leakage (power {leak['score']})"
+                sure[col] = proportion_confidence(leak["score"], target_power_threshold(),
+                                                  int(n * LEAK_HOLDOUT_SHARE))
     drop.pop(target, None)
-    if drop:
-        reasons = "; ".join(f"{c}: {r}" for c, r in drop.items())
-        plan.steps.append(DropColumns(tuple(drop), reason=reasons))
+    confident = {c: r for c, r in drop.items() if sure.get(c, 1.0) >= CONFIDENT}
+    if confident:
+        add(DropColumns(tuple(confident), reason="; ".join(f"{c}: {r}" for c, r in confident.items())))
+    for col in drop:
+        if col not in confident:          # judged one by one, so one doubt doesn't block the rest
+            add(DropColumns((col,), reason=f"{col}: {drop[col]}", confidence=sure[col]))
 
     # 2 ── rows without a target ────────────────────────────────────────────
     if target is not None and drop_null_target and sample[target].isna().any():
         pct = round(sample[target].isna().mean() * 100, 2)
-        plan.steps.append(DropNullRows(target, reason=f"target is null in {pct}% of sample"))
+        add(DropNullRows(target, reason=f"target is null in {pct}% of sample"))
 
     features = [c for c in current().columns if c != target]
 
@@ -105,18 +145,20 @@ def plan_from_report(
     for col in features:
         if fix_numeric_text and detectors.is_numeric_text(df[col]):
             ratio = detectors.numeric_text_ratio(df[col])
-            plan.steps.append(ToNumeric(col, reason=f"{ratio:.0%} of values are numbers stored as text"))
+            add(ToNumeric(col, reason=f"{ratio:.0%} of values are numbers stored as text",
+                          confidence=proportion_confidence(ratio, detectors.NUMERIC_TEXT_MIN_RATIO,
+                                                           int(df[col].notna().sum()))))
         elif normalize_text:
             variants = detectors.text_variants(df[col])
             if variants:
-                plan.steps.append(NormalizeText(
+                add(NormalizeText(
                     col, reason=f"{variants[0]} spellings collapse to {variants[1]} after trim/lower-case"))
 
     # 5 ── duplicates ───────────────────────────────────────────────────────
     df = current()
     dups = int(df.duplicated().sum())
     if drop_duplicates and dups:
-        plan.steps.append(DropDuplicates(reason=f"{dups / len(df):.2%} duplicate rows in sample"))
+        add(DropDuplicates(reason=f"{dups / len(df):.2%} duplicate rows in sample"))
 
     # 6 ── rare categories ──────────────────────────────────────────────────
     if group_rare:
@@ -126,7 +168,7 @@ def plan_from_report(
             if rare:
                 keep, other = rare
                 n_unique = df[col].nunique()
-                plan.steps.append(GroupRare(col, keep, other,
+                add(GroupRare(col, keep, other,
                                             reason=f"{n_unique - len(keep)} of {n_unique} values are under 1% each"))
 
     # 7 ── informative missingness ──────────────────────────────────────────
@@ -139,7 +181,7 @@ def plan_from_report(
             name = f"{col}_was_missing"
             while name in df.columns:
                 name += "_"
-            plan.steps.append(MissingIndicator(col, name, reason=f"target differs when missing (gap {gap})"))
+            add(MissingIndicator(col, name, reason=f"target differs when missing (gap {gap})"))
 
     # 8 + 9 ── fill, skew, outliers (stats from the sample as cleaned so far) ─
     df = current()
@@ -151,16 +193,19 @@ def plan_from_report(
         if col in num_stats and "error" not in num_stats[col]:
             s = num_stats[col]
             if fill_nulls and has_nulls:
-                plan.steps.append(FillNull(col, _number(s["median"]), reason="median of sample"))
+                add(FillNull(col, _number(s["median"]), reason="median of sample"))
+            n_col = int(df[col].notna().sum())
             if fix_skew and s.get("skewed") and s["min"] >= 0:
-                plan.steps.append(Log1p(col, reason=f"skewness {s['skewness']}"))
+                add(Log1p(col, reason=f"skewness {s['skewness']}",
+                          confidence=margin_confidence(abs(s["skewness"]), numeric.SKEW_THRESHOLD,
+                                                       math.sqrt(6 / max(n_col, 1)))))
             elif s.get("outlier_pct", 0) > OUTLIER_CLIP_PCT and s["iqr"] > 0:
                 lower = round(s["q25"] - 1.5 * s["iqr"], 6)
                 upper = round(s["q75"] + 1.5 * s["iqr"], 6)
                 if clip_outliers:
-                    plan.steps.append(
-                        ClipOutliers(col, lower, upper, reason=f"{s['outlier_pct']}% IQR outliers")
-                    )
+                    add(ClipOutliers(col, lower, upper, reason=f"{s['outlier_pct']}% IQR outliers",
+                                     confidence=proportion_confidence(
+                                         s["outlier_pct"] / 100, OUTLIER_CLIP_PCT / 100, n_col)))
                 else:
                     # Outliers are often real (big orders, rare events): flag, don't change.
                     plan.suggestions.append(
@@ -168,10 +213,15 @@ def plan_from_report(
                         f"[{lower:g}, {upper:g}]; check them, or pass clip_outliers=True to clip")
         elif detectors.is_text(df[col]) and col in cat_stats and "error" not in cat_stats[col]:
             if fill_nulls and has_nulls:
-                plan.steps.append(FillNull(col, cat_stats[col]["mode"], reason="mode of sample"))
+                add(FillNull(col, cat_stats[col]["mode"], reason="mode of sample"))
 
     return plan
 
 
 def _number(x: float):
     return int(x) if float(x).is_integer() else float(x)
+
+
+def target_power_threshold() -> float:
+    from ..analyzers.target import LEAK_THRESHOLD
+    return LEAK_THRESHOLD

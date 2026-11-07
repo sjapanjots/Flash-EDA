@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, List, Optional
 
-from ..steps import Plan, Step
+from ..steps import Plan, Step, _label
 
 
 class Writer(ABC):
@@ -65,6 +65,9 @@ class Writer(ABC):
         lines += ["", "Steps:"] + [f"  {i}. {d}" for i, d in enumerate(plan.describe(), 1)]
         if not plan.steps:
             lines.append("  (none — the data looked clean)")
+        if plan.skipped:
+            lines += ["", "Skipped, needs your approval (re-plan with approve=\"all\" to apply):"]
+            lines += [f"  - {_label(s)} ({why})" for s, why in plan.skipped]
         if plan.suggestions:
             lines += ["", "Not applied (review these yourself):"] + [f"  - {s}" for s in plan.suggestions]
         return '"""\n' + "\n".join(lines) + '\n"""'
