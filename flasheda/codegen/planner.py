@@ -19,7 +19,9 @@ converted from text gets a numeric median.
   9. distributions   log-transform skewed columns; IQR outliers become a
                      suggestion (clipped only with clip_outliers=True)
 
-The target column is never transformed, only filtered for nulls.
+The target column is never transformed, only filtered for nulls. Columns in
+`protect` are never dropped or changed either (only whole duplicate rows
+can still go: pass drop_duplicates=False to keep those too).
 
 Every step gets a risk level (flasheda.codegen.registry) and a confidence:
 how sure the sample is that the full data would lead to the same decision.
@@ -36,7 +38,7 @@ see them all with plan.review().
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional, Sequence
 
 import pandas as pd
 
@@ -73,6 +75,7 @@ def plan_from_report(
     fix_skew: bool = True,
     clip_outliers: bool = False,
     approve: str = "confident",
+    protect: Sequence[str] = (),
 ) -> Plan:
     if approve not in APPROVE:
         raise ValueError(f"approve must be one of {APPROVE}")
@@ -85,6 +88,7 @@ def plan_from_report(
     if target is not None and target not in sample.columns:
         raise KeyError(f"Target column {target!r} not found.")
     task = target_info.get("task")
+    protected = check_protected(protect, sample.columns, target)
 
     plan = Plan()
     current = lambda: plan.apply(sample)  # noqa: E731 — the sample as cleaned so far
@@ -125,7 +129,8 @@ def plan_from_report(
                 drop[col] = f"possible target leakage (power {leak['score']})"
                 sure[col] = proportion_confidence(leak["score"], target_power_threshold(),
                                                   int(n * LEAK_HOLDOUT_SHARE))
-    drop.pop(target, None)
+    for col in [target, *protected]:
+        drop.pop(col, None)
     confident = {c: r for c, r in drop.items() if sure.get(c, 1.0) >= CONFIDENT}
     if confident:
         add(DropColumns(tuple(confident), reason="; ".join(f"{c}: {r}" for c, r in confident.items())))
@@ -138,7 +143,7 @@ def plan_from_report(
         pct = round(sample[target].isna().mean() * 100, 2)
         add(DropNullRows(target, reason=f"target is null in {pct}% of sample"))
 
-    features = [c for c in current().columns if c != target]
+    features = [c for c in current().columns if c != target and c not in protected]
 
     # 3 + 4 ── types and text ───────────────────────────────────────────────
     df = current()
@@ -225,3 +230,12 @@ def _number(x: float):
 def target_power_threshold() -> float:
     from ..analyzers.target import LEAK_THRESHOLD
     return LEAK_THRESHOLD
+
+
+def check_protected(protect: Sequence[str], columns, target: Optional[str]) -> set:
+    if isinstance(protect, str):
+        protect = [protect]
+    missing = [c for c in protect if c not in columns]
+    if missing:
+        raise KeyError(f"Protected column(s) not found: {missing}")
+    return set(protect)
