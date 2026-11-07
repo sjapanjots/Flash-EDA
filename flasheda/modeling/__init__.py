@@ -47,6 +47,7 @@ class ModelResult:
     train_code: str
     report: Any = field(default=None, repr=False)
     warnings: List[str] = field(default_factory=list)
+    holdout_rows: int = 0           # latest rows kept out of model selection (time-based only)
 
     @property
     def lower_is_better(self) -> bool:
@@ -65,14 +66,21 @@ class ModelResult:
         table = Table(title=f"{self.task} · {self.target} · {self.metric} "
                             f"({'lower' if self.lower_is_better else 'higher'} is better)",
                       box=box.SIMPLE)
-        for col in ("model", self.metric, "± std", "fit s"):
+        has_holdout = "holdout" in self.leaderboard.columns
+        cols = ["model", self.metric, "± std"] + (["holdout"] if has_holdout else []) + ["fit s"]
+        for col in cols:
             table.add_column(col)
         for _, row in self.leaderboard.iterrows():
             style = "bold green" if row["model"] == self.best else None
-            table.add_row(row["model"], f"{row['score']:.4f}", f"{row['std']:.4f}",
-                          f"{row['fit_seconds']:.2f}", style=style)
+            cells = [row["model"], f"{row['score']:.4f}", f"{row['std']:.4f}"]
+            if has_holdout:
+                cells.append("n/a" if pd.isna(row["holdout"]) else f"{row['holdout']:.4f}")
+            table.add_row(*cells, f"{row['fit_seconds']:.2f}", style=style)
         console = Console()
         console.print(table)
+        if has_holdout:
+            console.print(f"  holdout = score on the latest {self.holdout_rows:,} rows, "
+                          "never used to pick the model")
         for w in self.warnings:
             console.print(f"  [bold yellow]⚠  {w}[/bold yellow]")
 
@@ -95,6 +103,7 @@ def train(
     random_state: int = 42,
     validate: bool = True,
     rare_classes: str = "error",
+    holdout: float = 0.2,
     **plan_options,
 ) -> ModelResult:
     """
@@ -107,13 +116,17 @@ def train(
     rare_classes: what to do with target classes too rare to evaluate (fewer
                   than 2 sampled rows): "error" (default), "drop" those rows,
                   or "merge" them into "other" (multiclass only)
+    holdout     : with a time column, the share of the latest rows kept out of
+                  model selection and scored once at the end (0 turns it off)
+    random_state: seeds the sample, the CV shuffles and the models
     """
     from .. import analyze
 
     report = analyze(source, n=n, target=target, random_state=random_state, save_pdf=False)
     return train_from_report(report, engine, output=output, model_path=model_path,
                              models=models, n_splits=n_splits, validate=validate,
-                             rare_classes=rare_classes, **plan_options)
+                             rare_classes=rare_classes, holdout=holdout,
+                             random_state=random_state, **plan_options)
 
 
 def train_from_report(
@@ -126,9 +139,13 @@ def train_from_report(
     n_splits: int = 5,
     validate: bool = True,
     rare_classes: str = "error",
+    holdout: float = 0.2,
+    random_state: int = 42,
     **plan_options,
 ) -> ModelResult:
     _require_sklearn()
+    if not 0 <= holdout < 0.5:
+        raise ValueError("holdout must be at least 0 and below 0.5")
     requested_splits = n_splits
     if rare_classes not in ("error", "drop", "merge"):
         raise ValueError("rare_classes must be 'error', 'drop' or 'merge'")
@@ -163,39 +180,57 @@ def train_from_report(
         y = data[target].astype(float)
 
     scoring, label = scoring_for(t)
-    specs = [s for s in candidates(task) if models is None or s.name in models]
+    specs = [s for s in candidates(task, random_state) if models is None or s.name in models]
     if not specs:
         raise ValueError(f"No models match {models!r}. Choose from {[s.name for s in candidates(task)]}.")
-    cv, n_splits = _make_cv(task, y, n_splits, bool(time_order))
+
+    # Time-based: the latest rows are an untouched holdout, scored once at the end.
+    n_hold = int(len(X) * holdout) if time_order else 0
+    if n_hold and n_hold < MIN_HOLDOUT_ROWS:
+        notes.append(f"No holdout: {n_hold} rows would be too few to score (need {MIN_HOLDOUT_ROWS}).")
+        n_hold = 0
+    X_dev, y_dev = (X.iloc[:-n_hold], y.iloc[:-n_hold]) if n_hold else (X, y)
+    cv, n_splits = _make_cv(task, y_dev, n_splits, bool(time_order), random_state)
     if task != "regression" and n_splits < requested_splits:
         notes.append(f"Cross-validation uses {n_splits} folds instead of {requested_splits}: "
                      "the rarest class has too few rows for more.")
 
     rows = []
     for spec in specs:
-        rows.append(_evaluate(spec, X, y, scoring, cv))
+        row = _evaluate(spec, X_dev, y_dev, scoring, cv)
+        if n_hold:
+            row["holdout"] = _holdout_score(spec, X_dev, y_dev, X.iloc[-n_hold:], y.iloc[-n_hold:], scoring)
+        rows.append(row)
     # scikit-learn scores are "higher is better" (error metrics are negated),
     # so sort descending, then flip error metrics back to positive for display.
     board = pd.DataFrame(rows).sort_values("score", ascending=False).reset_index(drop=True)
     if scoring.startswith("neg_"):
         board["score"] = -board["score"]
+        if n_hold:
+            board["holdout"] = -board["holdout"]
+    if n_hold and board["holdout"].isna().any():
+        notes.append("Some holdout scores are n/a: the latest rows don't contain every target class.")
     best_row = board[board["model"] != "baseline"].iloc[0] if len(board) > 1 else board.iloc[0]
     best = next(s for s in specs if s.name == best_row["model"])
 
     summary = (f"best of {len(specs)} on a {len(X):,}-row sample "
-               f"({label} {best_row['score']:.4f} ± {best_row['std']:.4f})")
+               f"({label} {best_row['score']:.4f} ± {best_row['std']:.4f}"
+               + (f", holdout {best_row['holdout']:.4f}" if n_hold and pd.notna(best_row["holdout"]) else "")
+               + ")")
     code = render_training_script(
         best, task=task, target=target, features=features, scoring=scoring, metric_label=label,
         positive=positive, time_order=time_order, data=output, model_path=model_path,
         n_splits=n_splits, summary=summary, relabel=relabel,
+        holdout=holdout if n_hold else 0.0, random_state=random_state,
     )
     if validate:
         _validate_training_script(code, data, features, target)
 
     return ModelResult(task, target, label, scoring, board, best.name, features, positive,
-                       time_order, prep, code, report, notes)
+                       time_order, prep, code, report, notes, n_hold)
 
 
+MIN_HOLDOUT_ROWS = 30       # fewer holdout rows give a meaningless score
 MIN_CLASS_ROWS = 2          # a class needs rows in both the training and test part of a fold
 UNSTABLE_CLASS_ROWS = 20    # below this, scores for the class swing a lot between samples
 
@@ -248,7 +283,17 @@ def _evaluate(spec: ModelSpec, X, y, scoring: str, cv) -> Dict[str, Any]:
     }
 
 
-def _make_cv(task: str, y: pd.Series, n_splits: int, time_based: bool):
+def _holdout_score(spec: ModelSpec, X_dev, y_dev, X_hold, y_hold, scoring: str) -> float:
+    """Fit on the earlier rows, score once on the latest rows (NaN if the scorer can't)."""
+    from sklearn.metrics import get_scorer
+
+    try:
+        return float(get_scorer(scoring)(spec.build().fit(X_dev, y_dev), X_hold, y_hold))
+    except ValueError:          # e.g. ROC-AUC when the holdout has a single class
+        return float("nan")
+
+
+def _make_cv(task: str, y: pd.Series, n_splits: int, time_based: bool, random_state: int = 42):
     from sklearn.model_selection import KFold, StratifiedKFold, TimeSeriesSplit
 
     if time_based:
@@ -263,10 +308,10 @@ def _make_cv(task: str, y: pd.Series, n_splits: int, time_based: bool):
             "part of each fold: the rare class is too rare or only occurs in one period. "
             "Use a larger sample (n=...) or more data.")
     if task == "regression":
-        return KFold(n_splits=n_splits, shuffle=True, random_state=42), n_splits
+        return KFold(n_splits=n_splits, shuffle=True, random_state=random_state), n_splits
     smallest = int(y.value_counts().min())
     k = max(2, min(n_splits, smallest))
-    return StratifiedKFold(n_splits=k, shuffle=True, random_state=42), k
+    return StratifiedKFold(n_splits=k, shuffle=True, random_state=random_state), k
 
 
 def _validate_training_script(code: str, data: pd.DataFrame, features, target) -> None:

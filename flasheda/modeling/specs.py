@@ -7,7 +7,7 @@ evaluator and the generated training script build exactly the same thing.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Dict, Tuple
 
 
@@ -58,8 +58,17 @@ REGRESSORS = (
 )
 
 
-def candidates(task: str) -> Tuple[ModelSpec, ...]:
-    return REGRESSORS if task == "regression" else CLASSIFIERS
+def candidates(task: str, random_state: int = RS) -> Tuple[ModelSpec, ...]:
+    """Candidate models for `task`, seeded with `random_state`."""
+    specs = REGRESSORS if task == "regression" else CLASSIFIERS
+    return tuple(with_seed(s, random_state) for s in specs)
+
+
+def with_seed(spec: ModelSpec, random_state: int) -> ModelSpec:
+    """`spec` with its random_state parameter (if it has one) set to `random_state`."""
+    if "random_state" not in spec.params:
+        return spec
+    return replace(spec, params={**spec.params, "random_state": random_state})
 
 
 def scoring_for(target_info: Dict[str, Any]) -> Tuple[str, str]:
