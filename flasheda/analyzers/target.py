@@ -170,7 +170,7 @@ def _class_balance(y: pd.Series) -> Dict[str, Any]:
     minority_pct = round(counts.iloc[-1] / n * 100, 2)
     return {
         "classes": [
-            {"value": v, "count": int(c), "pct": round(c / n * 100, 2)}
+            {"value": str(v), "count": int(c), "pct": round(c / n * 100, 2)}
             for v, c in counts.head(MAX_CLASSES).items()
         ],
         "n_classes": int(len(counts)),
