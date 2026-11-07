@@ -28,6 +28,7 @@ def render_training_script(
     model_path: str,
     n_splits: int,
     summary: str,
+    relabel: Optional[dict] = None,
 ) -> str:
     if time_order:
         cv = "TimeSeriesSplit(n_splits=N_SPLITS)"
@@ -74,6 +75,14 @@ def render_training_script(
         build = layers[0]
 
     feature_lines = "\n".join(f"    {f!r}," for f in features)
+    relabel = relabel or {}
+    if "drop" in relabel:
+        relabel_lines = (f"    df = df[~df[TARGET].astype(str).isin({relabel['drop']!r})]  # rare classes\n")
+    elif "merge" in relabel:
+        relabel_lines = (f"    rare = df[TARGET].astype(str).isin({relabel['merge']!r})  # rare classes\n"
+                         f"    df[TARGET] = df[TARGET].astype(str).where(~rare, {relabel['into']!r})\n")
+    else:
+        relabel_lines = ""
     sort_line = (
         '    df = df.sort_values(TIME_ORDER, na_position="first", kind="stable")\n'
         if time_order else ""
@@ -109,7 +118,7 @@ FEATURES = [
 def load():
     df = pd.read_parquet(DATA, columns=FEATURES + [TARGET] + [c for c in TIME_ORDER if c not in FEATURES])
     df = df[df[TARGET].notna()]
-    if len(df) > MAX_ROWS:
+{relabel_lines}    if len(df) > MAX_ROWS:
         df = df.sample(MAX_ROWS, random_state=RANDOM_STATE)
 {sort_line}    X = df[FEATURES]
     {target_line}

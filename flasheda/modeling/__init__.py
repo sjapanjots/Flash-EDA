@@ -46,6 +46,7 @@ class ModelResult:
     prep: Any                       # GeneratedCode: cleaning + features
     train_code: str
     report: Any = field(default=None, repr=False)
+    warnings: List[str] = field(default_factory=list)
 
     @property
     def lower_is_better(self) -> bool:
@@ -70,7 +71,10 @@ class ModelResult:
             style = "bold green" if row["model"] == self.best else None
             table.add_row(row["model"], f"{row['score']:.4f}", f"{row['std']:.4f}",
                           f"{row['fit_seconds']:.2f}", style=style)
-        Console().print(table)
+        console = Console()
+        console.print(table)
+        for w in self.warnings:
+            console.print(f"  [bold yellow]⚠  {w}[/bold yellow]")
 
     def __repr__(self) -> str:
         top = self.leaderboard.iloc[0]
@@ -90,6 +94,7 @@ def train(
     n: Optional[int] = None,
     random_state: int = 42,
     validate: bool = True,
+    rare_classes: str = "error",
     **plan_options,
 ) -> ModelResult:
     """
@@ -99,12 +104,16 @@ def train(
     engine      : engine for the prep script (default: by size)
     output      : Parquet file the prep script writes and the training script reads
     models      : subset of model names (default: all candidates for the task)
+    rare_classes: what to do with target classes too rare to evaluate (fewer
+                  than 2 sampled rows): "error" (default), "drop" those rows,
+                  or "merge" them into "other" (multiclass only)
     """
     from .. import analyze
 
     report = analyze(source, n=n, target=target, random_state=random_state, save_pdf=False)
     return train_from_report(report, engine, output=output, model_path=model_path,
-                             models=models, n_splits=n_splits, validate=validate, **plan_options)
+                             models=models, n_splits=n_splits, validate=validate,
+                             rare_classes=rare_classes, **plan_options)
 
 
 def train_from_report(
@@ -116,9 +125,13 @@ def train_from_report(
     models: Optional[Sequence[str]] = None,
     n_splits: int = 5,
     validate: bool = True,
+    rare_classes: str = "error",
     **plan_options,
 ) -> ModelResult:
     _require_sklearn()
+    requested_splits = n_splits
+    if rare_classes not in ("error", "drop", "merge"):
+        raise ValueError("rare_classes must be 'error', 'drop' or 'merge'")
     from ..features import time_order_columns
 
     t = report.target
@@ -135,6 +148,10 @@ def train_from_report(
     data = data[data[target].notna()]
     if time_order:
         data = data.sort_values(time_order, na_position="first", kind="stable")
+    notes: List[str] = []
+    relabel: Dict[str, Any] = {}
+    if task != "regression":
+        data, relabel, notes = _handle_rare_classes(data, target, task, rare_classes)
     X = data[features]
     positive = None
     if task == "binary":
@@ -150,6 +167,9 @@ def train_from_report(
     if not specs:
         raise ValueError(f"No models match {models!r}. Choose from {[s.name for s in candidates(task)]}.")
     cv, n_splits = _make_cv(task, y, n_splits, bool(time_order))
+    if task != "regression" and n_splits < requested_splits:
+        notes.append(f"Cross-validation uses {n_splits} folds instead of {requested_splits}: "
+                     "the rarest class has too few rows for more.")
 
     rows = []
     for spec in specs:
@@ -167,13 +187,52 @@ def train_from_report(
     code = render_training_script(
         best, task=task, target=target, features=features, scoring=scoring, metric_label=label,
         positive=positive, time_order=time_order, data=output, model_path=model_path,
-        n_splits=n_splits, summary=summary,
+        n_splits=n_splits, summary=summary, relabel=relabel,
     )
     if validate:
         _validate_training_script(code, data, features, target)
 
     return ModelResult(task, target, label, scoring, board, best.name, features, positive,
-                       time_order, prep, code, report)
+                       time_order, prep, code, report, notes)
+
+
+MIN_CLASS_ROWS = 2          # a class needs rows in both the training and test part of a fold
+UNSTABLE_CLASS_ROWS = 20    # below this, scores for the class swing a lot between samples
+
+
+def _handle_rare_classes(data: pd.DataFrame, target: str, task: str, policy: str):
+    """Classes with fewer than MIN_CLASS_ROWS sampled rows can't be evaluated."""
+    labels = data[target].astype(str)
+    counts = labels.value_counts()
+    rare = counts[counts < MIN_CLASS_ROWS]
+    notes: List[str] = []
+    relabel: Dict[str, Any] = {}
+    if len(rare):
+        listing = ", ".join(f"{v!r} ({c} row{'s' if c != 1 else ''})" for v, c in rare.items())
+        if task == "binary" or policy == "error":
+            raise ValueError(
+                f"Target class(es) {listing} have fewer than {MIN_CLASS_ROWS} rows in the "
+                f"{len(data):,}-row sample, too few to train and evaluate a model. "
+                "Use a larger sample (fe.train(..., n=50_000)) or more data"
+                + ("; for multiclass targets, rare_classes='drop' or 'merge' also works." if task == "multiclass" else "."))
+        if policy == "drop":
+            data = data[~labels.isin(rare.index)]
+            relabel = {"drop": sorted(rare.index)}
+            notes.append(f"Dropped rows of rare target classes: {listing}.")
+        else:
+            other = "other"
+            while other in counts.index:
+                other = f"_{other}_"
+            data = data.assign(**{target: labels.where(~labels.isin(rare.index), other)})
+            relabel = {"merge": sorted(rare.index), "into": other}
+            notes.append(f"Merged rare target classes into {other!r}: {listing}.")
+            if (data[target] == other).sum() < MIN_CLASS_ROWS:
+                raise ValueError(f"Even merged, the rare classes have fewer than {MIN_CLASS_ROWS} rows.")
+    smallest = data[target].astype(str).value_counts()
+    if smallest.min() < UNSTABLE_CLASS_ROWS:
+        notes.append(f"Class {smallest.idxmin()!r} has only {smallest.min()} sampled rows: "
+                     "its scores will vary a lot between samples. Consider a larger sample (n=...).")
+    return data, relabel, notes
 
 
 def _evaluate(spec: ModelSpec, X, y, scoring: str, cv) -> Dict[str, Any]:
@@ -193,7 +252,16 @@ def _make_cv(task: str, y: pd.Series, n_splits: int, time_based: bool):
     from sklearn.model_selection import KFold, StratifiedKFold, TimeSeriesSplit
 
     if time_based:
-        return TimeSeriesSplit(n_splits=n_splits), n_splits
+        if task == "regression":
+            return TimeSeriesSplit(n_splits=n_splits), n_splits
+        for k in range(n_splits, 1, -1):
+            folds = TimeSeriesSplit(n_splits=k).split(np.zeros(len(y)))
+            if all(y.iloc[tr].nunique() == y.iloc[te].nunique() == y.nunique() for tr, te in folds):
+                return TimeSeriesSplit(n_splits=k), k
+        raise ValueError(
+            "A time-based split can't put every target class in both the training and the test "
+            "part of each fold: the rare class is too rare or only occurs in one period. "
+            "Use a larger sample (n=...) or more data.")
     if task == "regression":
         return KFold(n_splits=n_splits, shuffle=True, random_state=42), n_splits
     smallest = int(y.value_counts().min())
