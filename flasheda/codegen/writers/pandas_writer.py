@@ -5,7 +5,7 @@ from typing import Optional
 from ..steps import (
     ClipOutliers, DateParts, DropColumns, DropDuplicates, DropNullRows, FillNull,
     FrequencyEncode, GroupRare, Log1p, MissingIndicator, NormalizeText, OneHot, Plan, Ratio,
-    TextStats, ToNumeric,
+    TextStats, ToNumeric, numeric_noise,
 )
 from .base import Writer, source_format
 
@@ -44,7 +44,12 @@ class PandasWriter(Writer):
         if isinstance(step, DropNullRows):
             return f"df = df[{c}.notna()].reset_index(drop=True)"
         if isinstance(step, ToNumeric):
-            return (f'{c} = pd.to_numeric({c}.astype("string").str.strip(" "), '
+            text = f'{c}.astype("string")'
+            if numeric_noise(step):
+                text += f'.str.replace({numeric_noise(step)!r}, "", regex=True)'
+            if step.decimal == ",":
+                text += '.str.replace(",", ".", regex=False)'
+            return (f'{c} = pd.to_numeric({text}.str.strip(" "), '
                     'errors="coerce").astype("float64")')
         if isinstance(step, NormalizeText):
             return f'{c} = {c}.str.strip(" ").str.lower()'
