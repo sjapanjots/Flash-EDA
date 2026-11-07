@@ -339,7 +339,7 @@ class EDAReport:
         validate      : run the generated code on the sample and raise if it
                         doesn't match the reference result
         features      : also add model-ready features (see EDAReport.plan)
-        plan_options  : passed to the planner, e.g. clip_outliers=False
+        plan_options  : passed to the planner, e.g. clip_outliers=True
         """
         from .codegen import generate
 
