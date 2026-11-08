@@ -1,0 +1,25 @@
+name: Commit attribution
+
+on:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: No AI author or co-author lines in this PR's commits
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          bad=$(git log --format='%h %an <%ae>%n%B' "$base..$head" \
+                | grep -inE '^[0-9a-f]+ claude |noreply@anthropic\.com|^Claude-Session:|^Co-Authored-By: Claude' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::Commits must be authored by a person, without AI author or co-author lines:"
+            echo "$bad"
+            echo "Fix: git rebase -i origin/main, then reword or re-author those commits."
+            exit 1
+          fi
+          echo "All commits are clean."
